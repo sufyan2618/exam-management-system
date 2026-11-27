@@ -1,9 +1,15 @@
 {
-  "name": "Secure Examination Management",
-  "short_name": "Examinations",
+  "name": "Verity \u00b7 Secure Examination",
+  "short_name": "Verity",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f6f2ea",
-  "theme_color": "#1f3a5f",
-  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+  "background_color": "#f8f5ee",
+  "theme_color": "#191a2e",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
 }

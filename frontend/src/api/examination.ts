@@ -106,7 +106,7 @@ function adapt(value: unknown): unknown {
     activeAttemptId: r.attempts?.activeAttemptId ?? (Array.isArray(r.attempts) ? r.attempts.find((a: {status:string}) => a.status === "IN_PROGRESS")?.id : undefined), resultAttemptId: r.result?.attemptId,
     canDispute: r.dispute?.open, reportAvailable: r.attemptId != null,
     replacementCode: r.supersededBy, canWithdraw: r.status === "OPEN", timeline:r.events?.map((e: {at:string;action:string;note?:string},i:number)=>({id:String(i),at:e.at,message:e.note ?? e.action})),
-    name: r.fullName ?? r.candidate?.fullName, active: r.isActive,
+    name: r.name ?? r.fullName ?? r.candidate?.fullName, active: r.isActive,
     canPublish: r.readiness?.ready, checks: r.readiness?.checklist ?? r.checks,
   };
 }

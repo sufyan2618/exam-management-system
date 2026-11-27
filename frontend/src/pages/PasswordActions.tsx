@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AuthLayout } from "../components/AuthLayout";
 import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { apiRequest } from "../api/client";
@@ -30,12 +31,11 @@ export function PasswordAction({ token }: { token?: string }) {
       }
     },
   });
-  return <main className="account-page" id="main-content">
-    <form className="account-card exam-form screen-notice" onSubmit={(event) => {
+  return <AuthLayout title={token ? "Set a new password" : "Update your password"} subtitle="Choose a strong password to keep your workspace secure." footer={<p>Keep your credentials private and your account protected.</p>}>
+    <form className="exam-form auth-password-form" onSubmit={(event) => {
       event.preventDefault();
       if (password === confirmation && password.length >= 6 && !update.isPending) update.mutate();
     }}>
-      <h1>{token ? "Reset password" : "Change password"}</h1>
       {!token && <label>Current password<input type="password" autoComplete="current-password" value={currentPassword}
         required onChange={(event) => setCurrentPassword(event.target.value)} /></label>}
       <label>New password<input type="password" autoComplete="new-password" minLength={6} value={password}
@@ -48,5 +48,5 @@ export function PasswordAction({ token }: { token?: string }) {
       {token ? <Link to="/forgot-password">Request another reset</Link> :
         !user?.mustChangePassword && <Link to="/dashboard">Return to account</Link>}
     </form>
-  </main>;
+  </AuthLayout>;
 }

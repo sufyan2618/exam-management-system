@@ -2,15 +2,16 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { queryClient } from "./api/query-client";
 import { getApiBaseUrl } from "./api/client";
+import { Brand } from "./components/Brand";
 import { FullPageLoader } from "./components/FullPageLoader";
 import { GuestRoute } from "./components/GuestRoute";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { useConnection } from "./hooks/useConnection";
 import { useProfile } from "./hooks/useProfile";
 import { PasswordAction } from "./pages/PasswordActions";
-import { DashboardPage } from "./pages/DashboardPage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { LoginPage } from "./pages/LoginPage";
+import { DashboardPage } from "./pages/DashboardPage";
 
 import { AccountPreferences, ScreenNotice, RoleWorkspace } from "./pages/Workspaces";
 import { roleHome, workspaces } from "./pages/workspace-routes";
@@ -28,7 +29,7 @@ function ConnectionGate({ connection }: { connection: ReturnType<typeof useConne
   return (
     <main className="connection-gate" id="main-content">
       <section className="gate-paper">
-        <div className="gate-mark" aria-hidden="true">S<span>.</span></div>
+        <div className="gate-mark"><Brand /></div>
         <h1>Looking for the examination server</h1>
         <p className="gate-copy">Your workspace will open automatically when the service is available.</p>
         <div className="paper-tape" aria-hidden="true"><span /></div>

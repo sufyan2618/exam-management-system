@@ -19,22 +19,55 @@ const columns = (...entries: [string, string][]) => entries.map(([label, key]) =
 const examLink = { label: "Examination", render: (row: Row) => <Link to={"/studio/exams/" + segment(row.id)}>{display(row.title)}</Link> };
 
 export function StudioOverview({ list = false }: { list?: boolean }) {
-  const query = useExamData<Exam[]>("/api/exams", { enabled: !list });
+  const query = useExamData<Exam[]>("/api/exams?pageSize=100", { enabled: !list, refreshMs: 30_000 });
+  const [stage, setStage] = useState("ALL");
+  const [search, setSearch] = useState("");
+  const exams = query.data ?? [];
+  const filtered = exams.filter((exam) => (stage === "ALL" || exam.state === stage) && exam.title.toLowerCase().includes(search.trim().toLowerCase()));
+  const stageName = (value: string) => value.charAt(0) + value.slice(1).toLowerCase();
   if (list) return <ResourcePanel title="Examinations" path="/api/exams" columns={[examLink, ...columns(["Status", "state"], ["Duration", "durationMinutes"])]}
     filters={[searchFilter, { name: "status", label: "Status", options: states }]} empty="No exams match these filters."
     toolbar={<Link className="button button-primary" to="/studio/exams/new">Create exam</Link>} />;
-  return <>
-    <div className="exam-actions"><Link className="button button-primary" to="/studio/exams/new">Create exam</Link><Link to="/studio/questions">Open question bank</Link></div>
+  return <div className="studio-dashboard">
+    <section className="studio-welcome">
+      <div><p className="eyebrow">Your examiner workspace</p><h2>Make room for<br /><span>great results.</span></h2><p>Build your next examination, keep delivery on track, and bring every result together.</p></div>
+      <div className="studio-welcome-actions"><Link className="button button-primary" to="/studio/exams/new"><span aria-hidden="true">＋</span> Create examination</Link><Link className="studio-text-link" to="/studio/questions">Explore question bank →</Link></div>
+    </section>
     <DataPanel pending={query.isPending} error={query.error} retry={() => void query.refetch()}>
-      {query.data && <div className="exam-card-grid">{states.slice(0, 4).map((state) => {
-        const exams = query.data?.filter((exam) => exam.state === state) ?? [];
-        return <section className="account-card exam-record" key={state}>
-          <h2>{state.charAt(0) + state.slice(1).toLowerCase()}</h2>
-          {exams.length ? <ul>{exams.map((exam) => <li key={exam.id}><Link to={"/studio/exams/" + segment(exam.id)}>{exam.title}</Link></li>)}</ul> : <p>No exams in this stage.</p>}
-        </section>;
-      })}</div>}
+      {query.data && <>
+        <div className="studio-stage-grid" role="group" aria-label="Filter examinations by stage">
+          {states.slice(0, 4).map((state, index) => <button type="button" className="studio-stage-card" data-stage={state} key={state} aria-pressed={stage === state} onClick={() => setStage(stage === state ? "ALL" : state)}>
+            <span className="studio-stage-label"><span className="studio-stage-dot" />{stageName(state)}<span className="studio-stage-index">0{index + 1}</span></span>
+            <strong>{exams.filter((exam) => exam.state === state).length}</strong>
+            <span className="studio-stage-hint">{["Prepare & configure", "Ready for candidates", "Monitor delivery", "Review & publish results"][index]}<span aria-hidden="true">↗</span></span>
+          </button>)}
+        </div>
+        <div className="studio-dashboard-grid">
+          <section className="studio-examinations">
+            <header className="studio-section-heading"><div><h2>Your examinations</h2><p>{exams.length} loaded · Select a stage to focus your view</p></div><Link to="/studio/exams">View all →</Link></header>
+            <div className="studio-exam-toolbar"><label><span className="exam-visually-hidden">Search loaded examinations</span><input type="search" placeholder="Search examinations…" value={search} onChange={(event) => setSearch(event.target.value)} /></label><select aria-label="Examination stage" value={stage} onChange={(event) => setStage(event.target.value)}><option value="ALL">All stages</option>{states.map((state) => <option value={state} key={state}>{stageName(state)}</option>)}</select></div>
+            <div className="studio-exam-list">
+              {filtered.map((exam) => {
+                const hub = "/studio/exams/" + segment(exam.id);
+                const next = exam.state === "DRAFT" ? ["Continue setup", hub + "/questions"] : exam.state === "ONGOING" ? ["Open monitor", hub + "/monitor"] : exam.state === "COMPLETED" ? ["Review grading", hub + "/grading"] : ["View candidates", hub + "/candidates"];
+                return <article className="studio-exam-card" key={exam.id}>
+                  <div className="studio-exam-card-top"><span className="studio-exam-status" data-stage={exam.state}>{stageName(exam.state)}</span><span className="studio-exam-duration">{exam.durationMinutes != null ? exam.durationMinutes + " min" : "Duration not set"}</span></div>
+                  <h3><Link to={hub}>{exam.title}</Link></h3>
+                  <p className="studio-exam-schedule">{exam.startsAt ? formatDate(exam.startsAt) : "Schedule not set"}</p>
+                  <footer><span>{exam.totalMarks != null ? exam.totalMarks + " total marks" : "Marks not set"}</span><Link to={next[1]}>{next[0]} <span aria-hidden="true">→</span></Link></footer>
+                </article>;
+              })}
+              {!filtered.length && <div className="studio-empty"><h3>{exams.length ? "No matching examinations" : "Your first examination starts here"}</h3><p>{exams.length ? "Try another stage or a different search." : "Create a draft, add your questions, then enroll candidates."}</p>{exams.length ? <button className="button button-ghost" onClick={() => { setStage("ALL"); setSearch(""); }}>Clear filters</button> : <Link className="button button-primary" to="/studio/exams/new">Create examination</Link>}</div>}
+            </div>
+          </section>
+          <aside className="studio-utilities">
+            <section className="studio-quick-tools"><p className="eyebrow">Keep things moving</p><h2>Studio essentials</h2>{[["01", "Question bank", "Build and organize reusable questions", "/studio/questions"], ["02", "Import center", "Upload questions from your files", "/studio/imports"], ["03", "Dispute inbox", "Review candidate concerns", "/studio/disputes"]].map(([number, title, description, path]) => <Link key={path} to={path}><span className="studio-tool-number">{number}</span><span><strong>{title}</strong><small>{description}</small></span><span aria-hidden="true">↗</span></Link>)}</section>
+            <section className="studio-workflow"><p className="eyebrow">From draft to results</p><h3>A clear path to your next exam</h3><ol><li><strong>Prepare</strong><span>Set the schedule and build your paper.</span></li><li><strong>Deliver</strong><span>Enroll candidates and monitor attempts.</span></li><li><strong>Evaluate</strong><span>Review grades and publish results.</span></li></ol></section>
+          </aside>
+        </div>
+      </>}
     </DataPanel>
-  </>;
+  </div>;
 }
 
 const basicFields: Field[] = [
@@ -230,8 +263,11 @@ export function DisputeInbox({ path }: { path: string }) {
 
 export function QuestionBank() {
   const path = "/api/questions";
+  const categories = useExamData<{id: string; name: string; parentId?: string}[]>("/api/categories");
+  const [categoryId, setCategoryId] = useState("");
+  const [creatingCategory, setCreatingCategory] = useState(false);
   const [revision, setRevision] = useState(0);
-  const [show, setShow] = useState(false);
+  const [editor, setEditor] = useState<{ mode: "create" | "edit" | "duplicate"; question?: Record<string, unknown> }>();
   const fields: Field[] = [
     { name: "stem", label: "Question text", type: "textarea" },
     { name: "difficulty", label: "Difficulty", options: difficulty },
@@ -239,19 +275,35 @@ export function QuestionBank() {
     { name: "tags", label: "Tags (comma separated)", optional: true },
     { name: "explanation", label: "Explanation", type: "textarea", optional: true },
   ];
-  return <>
-    <ResourcePanel title="Categories" path="/api/categories" empty="Create a category for your questions." columns={columns(["Category", "name"])} />
-    <ActionForm action={{label:"Create category",path:"/api/categories",fields:[{name:"name",label:"Category name"}]}} done={() => setRevision(value => value+1)}/>
-    <button className="button button-primary" onClick={() => setShow(!show)}>{show ? "Close question editor" : "New question"}</button>
-    {show && <section className="account-card exam-record"><QuestionEditor onSave={() => { setShow(false); setRevision((value) => value + 1); }} /></section>}
-    <ResourcePanel key={revision} title="Question bank" path={path} columns={columns(["Question", "stem"], ["Type", "type"], ["Difficulty", "difficulty"], ["Marks", "marks"], ["Version", "version"])}
-      empty="No questions match these filters." filters={[searchFilter, { name: "categoryId", label: "Category" }, { name: "difficulty", label: "Difficulty", options: difficulty }, { name: "type", label: "Type", options: questionTypes }]}
-      actions={(row) => row.id ? [
-        { label: "Edit question", method: "PATCH", path: path + "/" + segment(row.id), fields, initial: row },
-        { label: "Duplicate question", path: path + "/" + segment(row.id) + "/duplicate" },
-        { label: "Archive question", method: "DELETE", path: path + "/" + segment(row.id), confirm: row.id },
-      ] : []} />
-  </>;
+  const category = categories.data?.find((item) => item.id === categoryId);
+  return <div className="question-bank">
+    <header className="bank-intro"><div><p className="eyebrow">Your teaching library</p><h2>Great examinations start here.</h2><p>Organize your topics, build questions, and keep your next paper within reach.</p></div><button className="button button-primary" onClick={() => setEditor({ mode: "create" })}>+ New question</button></header>
+    {editor && <QuestionEditorDialog key={editor.mode + String(editor.question?.id ?? "")} mode={editor.mode} question={editor.question} onClose={() => setEditor(undefined)} onSave={() => { setEditor(undefined); setRevision((value) => value + 1); }} />}
+    <div className="bank-layout">
+      <aside className="bank-categories">
+        <header><h2>Categories</h2><span>{categories.data?.length ?? "—"}</span></header>
+        <DataPanel pending={categories.isPending} error={categories.error} retry={() => void categories.refetch()}>
+          <nav aria-label="Question categories"><button className="bank-category" aria-pressed={!categoryId} onClick={() => setCategoryId("")}><span className="bank-category-symbol" aria-hidden="true">▦</span><span>All categories</span></button>
+          {categories.data?.map((item) => <button className="bank-category" key={item.id} aria-pressed={categoryId === item.id} onClick={() => setCategoryId(item.id)}><span className="bank-category-symbol" aria-hidden="true">{item.parentId ? "↳" : "#"}</span><span>{item.name}</span></button>)}</nav>
+          {categories.data?.length === 0 && <p className="bank-category-empty">Add a category to organize your first questions.</p>}
+        </DataPanel>
+        <button className="button button-ghost bank-add-category" aria-expanded={creatingCategory} onClick={() => setCreatingCategory(!creatingCategory)}>{creatingCategory ? "Cancel" : "+ Add category"}</button>
+        {creatingCategory && <ActionForm action={{label:"Create category",path:"/api/categories",fields:[{name:"name",label:"Category name",min:1,max:100}]}} done={() => { void categories.refetch(); setCreatingCategory(false); }} />}
+        <p className="bank-category-note">Select a category to focus your library. Categories are also available when creating a question.</p>
+      </aside>
+      <section className="bank-questions" aria-label="Questions">
+        <header className="bank-section-heading"><div><h2>{category?.name ?? "All questions"}</h2><p>Search, review, and manage your reusable questions.</p></div>{categoryId && <button className="button button-ghost" onClick={() => setCategoryId("")}>Clear category</button>}</header>
+        <ResourcePanel key={revision + categoryId} title="Question bank" path={path + (categoryId ? "?categoryId=" + segment(categoryId) : "")}
+          columns={[{label:"Question",render:(row) => <div className="bank-question-cell"><ExamMarkdown text={String(row.stem ?? "")} /><span>{categories.data?.find((item) => item.id === row.categoryId)?.name ?? "Category unavailable"}</span></div>}, ...columns(["Type", "type"], ["Difficulty", "difficulty"], ["Marks", "defaultMarks"], ["Version", "version"])]}
+          empty="No questions match this view. Adjust your filters or create a new question." filters={[searchFilter, { name: "difficulty", label: "Difficulty", options: difficulty }, { name: "type", label: "Type", options: questionTypes }]}
+            actions={(row) => row.id ? [
+            { label: "Edit question", method: "PATCH", path: path + "/" + segment(row.id), fields, initial: row },
+            { label: "Duplicate question", path: path + "/" + segment(row.id) + "/duplicate" },
+            { label: "Archive question", method: "DELETE", path: path + "/" + segment(row.id), confirm: row.id },
+          ] : []} />
+      </section>
+    </div>
+  </div>;
 }
 
 function QuestionEditor({ onSave }: { onSave: () => void }) {

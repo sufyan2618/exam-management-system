@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { examWrite, formatDate, newOperationKey, segment } from "../api/examination";
 import type { Dispute, Exam, ExamResult, Verification } from "../api/examination";
 import { apiRequest } from "../api/client";
+import { ResultQuestionReview } from "../components/ResultQuestionReview";
 import { ExamMarkdown } from "../components/ExamMarkdown";
 import { ActionError, DataPanel, DataTable } from "../components/ExamData";
 import { useDownload } from "../hooks/useDownload";
@@ -98,21 +99,30 @@ export function CandidateResults({ id }: { id?: string }) {
   const download = useDownload("/api/me/results/" + segment(id ?? "") + "/report.pdf", "exam-result.pdf");
   return <DataPanel pending={query.isPending} error={query.error} retry={() => void query.refetch()}
     empty={!id && query.data && !rows.length ? "No published results yet." : undefined}>
-    {result ? <section className="account-card exam-record">
-      <h2>{result.examTitle}</h2>
-      <p className="exam-score">{result.score} / {result.totalMarks}</p>
-      {result.percentage != null && <p>{result.percentage}% {result.grade}</p>}
-      {result.publishedAt && <p>Published {formatDate(result.publishedAt)}</p>}
+    {result ? <div className="result-review">
+      <section className="result-summary">
+        <div className="result-summary-copy">
+          <Link className="result-back" to="/app/results">← All results</Link>
+          <p className="eyebrow">Examination result</p>
+          <h2>{result.examTitle}</h2>
+          {result.publishedAt && <p className="result-date">Published {formatDate(result.publishedAt)}</p>}
+          <div className="exam-actions result-actions">
+            {result.reportAvailable && <button className="button button-primary" disabled={download.isPending} onClick={() => download.mutate()}>{download.isPending ? "Downloading…" : "Download PDF"}</button>}
+            {result.verificationCode && <Link className="button button-ghost" to={"/verify/" + segment(result.verificationCode)}>Verify result ↗</Link>}
+            {result.canDispute && <Link className="result-dispute" to={"/app/disputes?attempt=" + segment(result.attemptId)}>File a dispute</Link>}
+          </div>
+          <ActionError error={download.error} />
+        </div>
+        <div className="result-total">
+          <span className="result-total-label">Total score</span>
+          <p><strong>{result.score}</strong><span> / {result.totalMarks}</span></p>
+          <div className="result-total-meta">{result.percentage != null && <span>{result.percentage}%</span>}{result.grade && <span>Grade {result.grade}</span>}</div>
+        </div>
+      </section>
       {result.sections?.length ? <DataTable label="Section results" columns={["Section", "Score", "Feedback"]}
         rows={result.sections.map((section) => ({ key: section.title, cells: [section.title, section.score + " / " + section.totalMarks, section.feedback ?? "—"] }))} /> : null}
-      {result.questions?.map((q,index)=><article className="exam-record" key={q.attemptQuestionId}><h3>Question {index+1} · {q.score} / {q.marks}</h3><ExamMarkdown text={q.stem}/>{q.textAnswer && <p>{q.textAnswer}</p>}{q.options?.map(o=><p key={o.label}>{o.label}. {o.text}{o.selected ? " · Your selection" : ""}{o.isCorrect ? " · Correct" : ""}</p>)}{q.feedback && <p>Feedback: {q.feedback}</p>}{q.explanation && <ExamMarkdown text={q.explanation}/>}</article>)}
-      <div className="exam-actions">
-        {result.reportAvailable && <button className="button button-primary" disabled={download.isPending} onClick={() => download.mutate()}>{download.isPending ? "Downloading…" : "Download PDF"}</button>}
-        {result.verificationCode && <Link to={"/verify/" + segment(result.verificationCode)}>Open verification page</Link>}
-        {result.canDispute && <Link to={"/app/disputes?attempt=" + segment(result.attemptId)}>File a dispute</Link>}
-      </div>
-      <ActionError error={download.error} />
-    </section> : rows.length > 0 && <DataTable label="Published results" columns={["Examination", "Score", "Published"]}
+      {!!result.questions?.length && <ResultQuestionReview key={result.attemptId} questions={result.questions} />}
+    </div> : rows.length > 0 && <DataTable label="Published results" columns={["Examination", "Score", "Published"]}
       rows={rows.map((row) => ({ key: row.attemptId, cells: [<Link to={"/app/results/" + segment(row.attemptId)}>{row.examTitle}</Link>, row.score + " / " + row.totalMarks, formatDate(row.publishedAt)] }))} />}
   </DataPanel>;
 }

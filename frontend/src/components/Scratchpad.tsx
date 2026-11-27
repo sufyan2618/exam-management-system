@@ -56,7 +56,7 @@ export function Scratchpad({ path, disabled, initialNotes, initialSketch }: {
       context.lineCap = "round";
       context.lineJoin = "round";
       context.lineWidth = current.width;
-      context.strokeStyle = "#1f3a5f";
+      context.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--ink").trim() || "#191a2e";
       context.globalCompositeOperation = current.erase ? "destination-out" : "source-over";
       const [start, ...rest] = current.points;
       context.moveTo(...start);
