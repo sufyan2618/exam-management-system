@@ -44,7 +44,8 @@ export function useConnection() {
             cache: "no-store",
             signal: AbortSignal.any([controller.signal, AbortSignal.timeout(4000)]),
           });
-          const data = await response.json().catch(() => null) as { success?: boolean; status?: string } | null;
+          const envelope = await response.json().catch(() => null);
+          const data = envelope?.data ?? envelope;
           if (disposed) return;
           setDiagnostic("HTTP " + response.status + " · " + Math.round(performance.now() - started) + " ms");
           degraded = candidate.versioned && data?.status?.toLowerCase() === "degraded";

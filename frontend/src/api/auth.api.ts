@@ -1,51 +1,31 @@
 import type {
   LoginInput,
   LoginResponse,
+  User,
   MessageResponse,
   ProfileResponse,
   RefreshResponse,
-  RegisterInput,
-  ResendOtpInput,
   UpdatePasswordInput,
-  VerifyOtpInput,
 } from "../types/auth";
-import { apiRequest, authPath } from "./client";
+import { apiRequest } from "./client";
 
 export const authApi = {
-  register(input: RegisterInput) {
-    return apiRequest<ProfileResponse>("/api/auth/register", {
-      method: "POST",
-      body: input,
-      auth: false,
-    });
-  },
-
-  verifyOtp(input: VerifyOtpInput) {
-    return apiRequest<MessageResponse>("/api/auth/verify-otp", {
-      method: "POST",
-      body: input,
-      auth: false,
-    });
-  },
-
-  resendOtp(input: ResendOtpInput) {
-    return apiRequest<MessageResponse>("/api/auth/resend-otp", {
-      method: "POST",
-      body: input,
-      auth: false,
-    });
-  },
-
+  register(_input: unknown): Promise<ProfileResponse> { void _input; return Promise.reject(new Error("Accounts are created by an administrator.")); },
+  verifyOtp(_input: unknown): Promise<MessageResponse> { void _input; return Promise.reject(new Error("Use the password reset link from your email.")); },
+  resendOtp(_input: unknown): Promise<MessageResponse> { void _input; return Promise.reject(new Error("Request a password reset link.")); },
   login(input: LoginInput) {
-    return apiRequest<LoginResponse>("/api/auth/login", {
-      method: "POST",
-      body: input,
-      auth: false,
+    return apiRequest<{ data: { accessToken: string; user: { id: string } } }>("/api/auth/login", {
+      method: "POST", body: input, auth: false,
+    }).then(async ({ data }) => {
+      const { useAuthStore } = await import("../store/auth.store");
+      useAuthStore.getState().setAccessToken(data.accessToken);
+      const profile = await authApi.profile();
+      return { ...profile, accessToken: data.accessToken } as LoginResponse;
     });
   },
 
   refresh() {
-    return apiRequest<RefreshResponse>("/api/auth/refresh-token", {
+    return apiRequest<RefreshResponse>("/api/auth/refresh", {
       method: "POST",
       body: {},
       auth: false,
@@ -60,11 +40,11 @@ export const authApi = {
   },
 
   profile(signal?: AbortSignal) {
-    return apiRequest<ProfileResponse>(authPath("/api/auth/profile", "/api/auth/me"), { signal });
+    return apiRequest<{data: {id: string; fullName: string; email: string; role: User["role"]; isActive: boolean; mustChangePassword: boolean; createdAt: string}}>("/api/auth/me", { signal }).then(({data}) => ({success: true, message: "", data: {...data, firstName: data.fullName, lastName: "", isVerified: true, isBlocked: !data.isActive, updatedAt: data.createdAt}}));
   },
 
   resetPassword(email: string) {
-    return apiRequest<MessageResponse>("/api/auth/reset-password", {
+    return apiRequest<MessageResponse>("/api/auth/forgot-password", {
       method: "POST",
       body: { email },
       auth: false,
@@ -72,7 +52,7 @@ export const authApi = {
   },
 
   updatePassword(input: UpdatePasswordInput) {
-    return apiRequest<MessageResponse>("/api/auth/update-password", {
+    return apiRequest<MessageResponse>("/api/auth/reset-password", {
       method: "POST",
       body: input,
       auth: false,

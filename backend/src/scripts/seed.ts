@@ -172,7 +172,7 @@ async function seed() {
     publishedAt: ago(10),
   });
   await Enrollment.insertMany(candDocs.map((c) => ({ examId: ongoing._id, candidateId: c._id, status: "ENROLLED", enrolledBy: examiner!._id })));
-  await Announcement.create({ examId: ongoing._id, seq: 1, body: "Welcome. Good luck!", createdBy: examiner!._id });
+  await Announcement.create({ examId: ongoing._id, seq: 1, message: "Welcome. Good luck!", authorId: examiner!._id });
   await Exam.updateOne({ _id: ongoing._id }, { $set: { announcementSeq: 1 } });
 
   // COMPLETED exam with published results

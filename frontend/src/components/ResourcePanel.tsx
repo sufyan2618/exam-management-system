@@ -15,7 +15,7 @@ export function ActionForm({ action, done }: { action: Action; done: (result: un
   const [confirmation, setConfirmation] = useState("");
   const [operation, setOperation] = useState(newOperationKey);
   const mutation = useMutation({
-    mutationFn: (data: Record<string, unknown>) => examWrite(action.path, action.method ?? "POST", data, operation),
+    mutationFn: (data: Record<string, unknown>) => examWrite(action.path, action.method ?? "POST", data, operation, typeof action.initial?.version === "number" ? action.initial.version : undefined),
     onSuccess: (result) => { setOperation(newOperationKey()); done(result); },
   });
   return <form className="exam-form" onSubmit={(event) => {
@@ -26,6 +26,8 @@ export function ActionForm({ action, done }: { action: Action; done: (result: un
     for (const field of action.fields ?? []) {
       const value = String(data.get(field.name) ?? "");
       if (field.type === "checkbox") body[field.name] = data.has(field.name);
+      else if (field.name === "emails") body[field.name] = value.split(/[\s,;]+/).filter(Boolean);
+      else if (field.name === "tags") body[field.name] = value.split(",").map((tag) => tag.trim()).filter(Boolean);
       else if (value !== "") body[field.name] = field.type === "number" ? Number(value) :
         field.type === "datetime-local" ? new Date(value).toISOString() : value.trim();
     }
@@ -33,7 +35,7 @@ export function ActionForm({ action, done }: { action: Action; done: (result: un
   }}>
     {action.fields?.map((field) => {
       const value = action.initial?.[field.name];
-      const initial = typeof value === "string" || typeof value === "number" ? value : "";
+      const initial = Array.isArray(value) ? value.join(", ") : typeof value === "string" || typeof value === "number" ? value : "";
       return <label key={field.name}>{field.label}
         {field.options ? <select name={field.name} required={!field.optional} defaultValue={initial}><option value="">Choose an option</option>{field.options.map((option) => <option key={option}>{option}</option>)}</select> :
           field.type === "textarea" ? <textarea name={field.name} required={!field.optional} minLength={field.min} maxLength={field.max} defaultValue={initial} /> :
@@ -53,9 +55,10 @@ export function ResourcePanel({ title, path, columns, empty, filters, actions, r
   actions?: (row: Row) => Action[]; refreshMs?: number; stream?: string; toolbar?: ReactNode;
 }) {
   const [search, setSearch] = useState("");
+  const [page,setPage] = useState(1);
   const [active, setActive] = useState<{ key: string; action: Action }>();
   const [notice, setNotice] = useState("");
-  const query = useExamData<Row[] | { items: Row[] }>(path + (search ? (path.includes("?") ? "&" : "?") + search : ""), { refreshMs });
+  const query = useExamData<Row[] | { items: Row[] }>(path + (path.includes("?") ? "&" : "?") + "page=" + page + "&pageSize=20" + (search ? "&" + search : ""), { refreshMs });
   useLiveUpdates(stream, () => void query.refetch());
   const rows = Array.isArray(query.data) ? query.data : query.data?.items;
   return <section className="exam-record">
@@ -64,7 +67,7 @@ export function ResourcePanel({ title, path, columns, empty, filters, actions, r
       event.preventDefault();
       const params = new URLSearchParams();
       new FormData(event.currentTarget).forEach((value, name) => { if (typeof value === "string" && value.trim()) params.set(name, value.trim()); });
-      setSearch(params.toString());
+      setPage(1); setSearch(params.toString());
     }}>
       {filters.map((field) => <label key={field.name}>{field.label}{field.options ?
         <select name={field.name}><option value="">All</option>{field.options.map((option) => <option key={option}>{option}</option>)}</select> :
@@ -83,6 +86,7 @@ export function ResourcePanel({ title, path, columns, empty, filters, actions, r
               <button className="button" key={action.label} onClick={() => { setNotice(""); setActive({ key: row.id + action.label, action }); }}>{action.label}</button>)}</div>] : [])],
         }))} />}
     </DataPanel>
+    <nav className="exam-actions" aria-label="Record pages"><button className="button" disabled={page===1} onClick={() => setPage(p=>p-1)}>Previous</button><span>Page {page}</span><button className="button" disabled={!rows || rows.length<20} onClick={() => setPage(p=>p+1)}>Next</button></nav>
     {active && <section className="account-card exam-record">
       <h2>{active.action.label}</h2>
       <ActionForm key={active.key} action={active.action} done={() => { setActive(undefined); setNotice("Changes saved."); void query.refetch(); }} />

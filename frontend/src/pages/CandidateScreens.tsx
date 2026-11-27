@@ -42,20 +42,20 @@ export function CandidateDashboard() {
 
 export function ExamBriefing({ id }: { id: string }) {
   const navigate = useNavigate();
-  const query = useExamData<Exam>("/api/exams/" + segment(id));
+  const query = useExamData<Exam>("/api/me/exams/" + segment(id));
   const [acknowledged, setAcknowledged] = useState(false);
   const [readiness, setReadiness] = useState<string>();
   const [checking, setChecking] = useState(false);
   const operation = useRef(newOperationKey());
   const start = useMutation({
-    mutationFn: () => examWrite<{ attemptId: string }>("/api/exams/" + segment(id) + "/start", "POST", { acknowledged }, operation.current),
+    mutationFn: () => examWrite<{ attemptId: string }>("/api/exams/" + segment(id) + "/attempts", "POST", { acknowledgeNotice: acknowledged }, operation.current),
     onSuccess: (result) => { if (result?.attemptId) navigate("/app/attempt/" + segment(result.attemptId)); },
   });
   async function check() {
     setChecking(true);
     const started = performance.now();
     try {
-      await apiRequest("/api/health", { auth: false, timeoutMs: 4000 });
+      await apiRequest("/api/health/ready", { auth: false, timeoutMs: 4000 });
       setReadiness("Server reached in " + Math.round(performance.now() - started) + " ms. " +
         (typeof indexedDB === "undefined" ? "Local recovery storage is unavailable." : "This browser supports local recovery storage."));
     } catch { setReadiness("The server could not be reached. Check your connection and try again."); }
@@ -95,7 +95,7 @@ export function CandidateResults({ id }: { id?: string }) {
   const query = useExamData<ExamResult[] | ExamResult>(id ? "/api/me/results/" + segment(id) : "/api/me/results");
   const result = id && !Array.isArray(query.data) ? query.data : undefined;
   const rows = Array.isArray(query.data) ? query.data : [];
-  const download = useDownload("/api/reports/results/" + segment(id ?? ""), "exam-result.pdf");
+  const download = useDownload("/api/me/results/" + segment(id ?? "") + "/report.pdf", "exam-result.pdf");
   return <DataPanel pending={query.isPending} error={query.error} retry={() => void query.refetch()}
     empty={!id && query.data && !rows.length ? "No published results yet." : undefined}>
     {result ? <section className="account-card exam-record">
@@ -105,6 +105,7 @@ export function CandidateResults({ id }: { id?: string }) {
       {result.publishedAt && <p>Published {formatDate(result.publishedAt)}</p>}
       {result.sections?.length ? <DataTable label="Section results" columns={["Section", "Score", "Feedback"]}
         rows={result.sections.map((section) => ({ key: section.title, cells: [section.title, section.score + " / " + section.totalMarks, section.feedback ?? "—"] }))} /> : null}
+      {result.questions?.map((q,index)=><article className="exam-record" key={q.attemptQuestionId}><h3>Question {index+1} · {q.score} / {q.marks}</h3><ExamMarkdown text={q.stem}/>{q.textAnswer && <p>{q.textAnswer}</p>}{q.options?.map(o=><p key={o.label}>{o.label}. {o.text}{o.selected ? " · Your selection" : ""}{o.isCorrect ? " · Correct" : ""}</p>)}{q.feedback && <p>Feedback: {q.feedback}</p>}{q.explanation && <ExamMarkdown text={q.explanation}/>}</article>)}
       <div className="exam-actions">
         {result.reportAvailable && <button className="button button-primary" disabled={download.isPending} onClick={() => download.mutate()}>{download.isPending ? "Downloading…" : "Download PDF"}</button>}
         {result.verificationCode && <Link to={"/verify/" + segment(result.verificationCode)}>Open verification page</Link>}
@@ -119,13 +120,15 @@ export function CandidateResults({ id }: { id?: string }) {
 export function CandidateDisputes({ id, attempt }: { id?: string; attempt?: string }) {
   const navigate = useNavigate();
   const [reason, setReason] = useState("");
-  const [type, setType] = useState("GRADING");
+  const [type, setType] = useState("TECHNICAL_INCIDENT");
   const [confirm, setConfirm] = useState(false);
+  const [questionId,setQuestionId] = useState("");
+  const result = useExamData<{questions:{attemptQuestionId:string;position:number;stem:string}[]}>("/api/me/results/" + segment(attempt ?? ""), {enabled:!!attempt});
   const key = useRef(newOperationKey());
-  const path = id ? "/api/me/disputes/" + segment(id) : "/api/me/disputes";
+  const path = id ? "/api/disputes/" + segment(id) : "/api/me/disputes";
   const query = useExamData<Dispute | Dispute[]>(path);
   const change = useMutation({
-    mutationFn: () => id ? examWrite(path + "/withdraw", "POST") : examWrite<{ id: string }>(path, "POST", { attemptId: attempt, type, reason: reason.trim() }, key.current),
+    mutationFn: () => id ? examWrite(path + "/withdraw", "POST") : examWrite<{ id: string }>("/api/me/results/" + segment(attempt ?? "") + "/disputes", "POST", { type, reason: reason.trim(), ...(questionId ? {attemptQuestionId:questionId} : {}) }, key.current),
     onSuccess: (value) => {
       setConfirm(false);
       setReason("");
@@ -139,8 +142,9 @@ export function CandidateDisputes({ id, attempt }: { id?: string; attempt?: stri
     {attempt && !id && <form className="account-card exam-record exam-form" onSubmit={(event) => { event.preventDefault(); if (reason.trim().length >= 20) change.mutate(); }}>
       <h2>File a dispute</h2>
       <label>Dispute type<select value={type} onChange={(event) => setType(event.target.value)}>
-        <option value="GRADING">Grading</option><option value="QUESTION">Question</option><option value="INTERRUPTION">Interruption</option>
+        <option value="TECHNICAL_INCIDENT">Technical incident</option><option value="GRADING_ERROR">Grading error</option><option value="AMBIGUOUS_QUESTION">Ambiguous question</option>
       </select></label>
+      {type !== "TECHNICAL_INCIDENT" && <label>Question<select required value={questionId} onChange={e=>setQuestionId(e.target.value)}><option value="">Select question</option>{result.data?.questions.map(q=><option key={q.attemptQuestionId} value={q.attemptQuestionId}>Question {q.position+1}: {q.stem.slice(0,80)}</option>)}</select></label>}
       <label>Reason<textarea required minLength={20} maxLength={2000} value={reason} onChange={(event) => setReason(event.target.value)} /></label>
       <small>{reason.length} / 2,000 characters</small>
       <button className="button button-primary" disabled={reason.trim().length < 20 || change.isPending}>Submit dispute</button>

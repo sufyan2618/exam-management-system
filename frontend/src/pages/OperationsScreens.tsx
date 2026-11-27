@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
+import { useAuthStore } from "../store/auth.store";
 import { apiRequest } from "../api/client";
 import { examWrite, formatDate, newOperationKey, segment } from "../api/examination";
 import { ActionError, DataPanel, DataTable } from "../components/ExamData";
@@ -26,12 +27,12 @@ export function AdminOverview() {
 }
 
 const userFields: Field[] = [
-  { name: "firstName", label: "First name" }, { name: "lastName", label: "Last name" },
+  { name: "fullName", label: "Full name" },
   { name: "email", label: "Email", type: "email" }, { name: "role", label: "Role", options: roles },
 ];
 
 export function AdminUsers({ id }: { id?: string }) {
-  const path = "/api/admin/users";
+  const path = "/api/users";
   const [revision, setRevision] = useState(0);
   const [show, setShow] = useState(false);
   const [temporary, setTemporary] = useState<string>();
@@ -57,13 +58,13 @@ export function AdminUsers({ id }: { id?: string }) {
 }
 
 function AdminUser({ id }: { id: string }) {
-  const path = "/api/admin/users/" + segment(id);
+  const path = "/api/users/" + segment(id);
   const query = useExamData<{ name: string; email: string; role: string; active: boolean; canManage?: boolean }>(path);
   const user = query.data;
   return <DataPanel pending={query.isPending} error={query.error} retry={() => void query.refetch()}>
     {user && <section className="account-card exam-record"><h2>{user.name}</h2><p>{user.email}</p>
       <span className="exam-stamp">{user.active ? "Active" : "Inactive"}</span><p>{user.role}</p>
-      {user.canManage && <>
+      {user && <>
         <ActionForm action={{ label: "Change role", path, method: "PATCH", initial: { role: user.role }, fields: [{ name: "role", label: "Role", options: roles }] }} done={() => void query.refetch()} />
         <ActionForm action={{ label: user.active ? "Deactivate user" : "Activate user", path: path + (user.active ? "/deactivate" : "/activate"), confirm: user.email }} done={() => void query.refetch()} />
       </>}
@@ -73,8 +74,8 @@ function AdminUser({ id }: { id: string }) {
 }
 
 export function AuditLog() {
-  return <ResourcePanel title="Audit events" path="/api/admin/audit" empty="No audit events match these filters."
-    filters={[{ name: "actor", label: "Actor" }, { name: "entity", label: "Entity" }, { name: "action", label: "Action" }, { name: "after", label: "From", type: "datetime-local" }]}
+  return <ResourcePanel title="Audit events" path="/api/audit-logs" empty="No audit events match these filters."
+    filters={[{ name: "actorId", label: "Actor" }, { name: "entityType", label: "Entity" }, { name: "action", label: "Action" }, { name: "from", label: "From", type: "datetime-local" }]}
     columns={[...columns(["Time", "createdAt"], ["Actor", "actor"], ["Action", "action"], ["Entity", "entity"], ["Chain verified", "verified"]),
       { label: "Changes", render: (row) => <details><summary>Inspect changes</summary>
         <h3>Before</h3><pre>{JSON.stringify(row.before ?? null, null, 2)}</pre>
@@ -91,16 +92,17 @@ export function AdminSystem() {
     </DataPanel>
     <ResourcePanel title="Job queues" path="/api/admin/system/queues" empty="No queues reported."
       columns={columns(["Queue", "name"], ["Waiting", "waiting"], ["Active", "active"], ["Failed", "failed"])} refreshMs={15_000} />
-    <ResourcePanel title="Failed jobs" path="/api/admin/system/jobs?status=failed" empty="No failed jobs."
-      columns={columns(["Job", "name"], ["Queue", "queue"], ["Error", "error"], ["Failed at", "failedAt"])}
-      actions={(row) => row.canRetry === true ? [{ label: "Retry job", path: "/api/admin/system/jobs/" + segment(row.id) + "/retry", confirm: row.id }] : []} />
+    <ResourcePanel title="Failed jobs" path="/api/admin/jobs/dead-letter" empty="No failed jobs."
+      columns={columns(["Job", "name"], ["Queue", "queue"], ["Error", "failedReason"], ["Failed at", "failedAt"])}
+      actions={(row) => row.id ? [{ label: "Retry job", path: "/api/admin/jobs/" + segment(row.id) + "/retry", confirm: row.id }] : []} />
   </>;
 }
 
 type ImportRun = { id: string; status: string; validCount?: number; invalidCount?: number; canCommit?: boolean; errors?: { row: number; column: string; message: string }[] };
 
 export function ImportCenter() {
-  const [kind, setKind] = useState("candidates");
+  const role = useAuthStore(state => state.user?.role);
+  const [kind] = useState(role === "ADMIN" ? "candidates" : "questions");
   const [selected, setSelected] = useState<File>();
   const [job, setJob] = useState<string>();
   const [revision, setRevision] = useState(0);
@@ -113,10 +115,11 @@ export function ImportCenter() {
     mutationFn: async (file: File) => {
       const body = new FormData();
       body.set("file", file);
-      body.set("type", kind);
-      body.set("mode", mode);
-      body.set("dryRun", "true");
-      return examWrite<ImportRun>(path, "POST", body, key);
+
+      body.set("mode", "dry-run");
+      body.set("atomic", mode === "atomic" ? "true" : "false");
+
+      return examWrite<ImportRun>(path + "/" + kind, "POST", body, key);
     },
     onSuccess: (result) => {
       if (!result?.id) return;
@@ -131,7 +134,7 @@ export function ImportCenter() {
     onSuccess: () => { setAccepted(false); void query.refetch(); setRevision((value) => value + 1); },
   });
   const template = useMutation({
-    mutationFn: () => apiRequest<Blob>(path + "/templates/" + segment(kind), { responseType: "blob" }),
+    mutationFn: () => apiRequest<Blob>(path + "/templates/" + segment(kind) + ".csv", { responseType: "blob" }),
     onSuccess: (blob) => {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -147,13 +150,14 @@ export function ImportCenter() {
       if (selected) upload.mutate(selected);
     }}>
       <h2>Validate an import file</h2>
-      <label>Import type<select value={kind} onChange={(event) => setKind(event.target.value)}><option value="candidates">Candidates</option><option value="questions">Questions</option></select></label>
+      <label>Import type<input value={kind} readOnly /></label>
       <label>Invalid rows<select value={mode} onChange={(event) => setMode(event.target.value)}><option value="atomic">Require every row to pass</option><option value="skip-invalid">Skip invalid rows</option></select></label>
       <label>CSV or JSON file<input type="file" accept=".csv,.json,text/csv,application/json" required onChange={(event) => setSelected(event.target.files?.[0])} /></label>
       <div className="exam-actions"><button className="button button-primary" disabled={!selected || upload.isPending}>Validate file</button>
         <button className="button" type="button" disabled={template.isPending} onClick={() => template.mutate()}>Download template</button></div>
       <ActionError error={upload.error ?? template.error} />
     </form>
+    {job && <div className="exam-actions"><DownloadImport path={path+"/"+segment(job)+"/errors.csv"} label="Download validation errors"/>{role==="ADMIN" && <DownloadImport path={path+"/"+segment(job)+"/credentials.csv"} label="Download temporary credentials (once)"/>}</div>}
     {job && <DataPanel pending={query.isPending} error={query.error} retry={() => void query.refetch()}>
       {query.data && <section className="account-card exam-record">
         <h2>Import preview</h2><span className="exam-stamp">{query.data.status}</span>
@@ -173,4 +177,9 @@ export function ImportCenter() {
       { label: "Created", render: (row) => formatDate(typeof row.createdAt === "string" ? row.createdAt : undefined) },
     ]} />
   </>;
+}
+
+function DownloadImport({path,label}:{path:string;label:string}) {
+ const download=useMutation({mutationFn:()=>apiRequest<Blob>(path,{responseType:"blob"}),onSuccess:blob=>{const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=path.split("/").pop() ?? "download.csv";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}});
+ return <><button className="button" disabled={download.isPending} onClick={()=>download.mutate()}>{label}</button><ActionError error={download.error}/></>;
 }

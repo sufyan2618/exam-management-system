@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { examWrite } from "../api/examination";
 
-type Signal = { type: string; at: string };
+type Signal = { type: string; occurredAt: string };
 
 export function useAttemptIntegrity(path: string, enabled: boolean) {
   const [count, setCount] = useState(0);
@@ -13,11 +13,11 @@ export function useAttemptIntegrity(path: string, enabled: boolean) {
     const add = (type: string) => {
       if (queue.length >= 200 || Date.now() - recordedAt < 250) return;
       recordedAt = Date.now();
-      queue.push({ type, at: new Date().toISOString() });
+      queue.push({ type, occurredAt: new Date().toISOString() });
       setCount((value) => value + 1);
     };
     const listeners: Record<string, EventListener> = {
-      visibilitychange: () => add(document.hidden ? "TAB_HIDDEN" : "TAB_VISIBLE"),
+      visibilitychange: () => { if (document.hidden) add("TAB_HIDDEN"); },
       fullscreenchange: () => { if (!document.fullscreenElement) add("FULLSCREEN_EXIT"); },
       copy: () => add("COPY"),
       cut: () => add("CUT"),

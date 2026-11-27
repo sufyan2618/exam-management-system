@@ -109,7 +109,7 @@ export function RoleWorkspace({ workspace, screen }: { workspace: Workspace; scr
       <main className="product-main" id="main-content">
         <header className="workspace-top">
           <h1 id="workspace-title" tabIndex={-1}>{screen.title}</h1>
-          {!screen.exam && workspace.role !== "CANDIDATE" && <WorkspaceTools workspace={workspace} />}
+          {!screen.exam && <WorkspaceTools workspace={workspace} />}
         </header>
         <div className="workspace-content">
           {examHub && !screen.exam && (

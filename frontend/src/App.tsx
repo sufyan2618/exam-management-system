@@ -11,10 +11,7 @@ import { PasswordAction } from "./pages/PasswordActions";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { LoginPage } from "./pages/LoginPage";
-import { ResetPasswordPage } from "./pages/ResetPasswordPage";
-import { SignupPage } from "./pages/SignupPage";
 
-import { VerifyOtpPage } from "./pages/VerifyOtpPage";
 import { AccountPreferences, ScreenNotice, RoleWorkspace } from "./pages/Workspaces";
 import { roleHome, workspaces } from "./pages/workspace-routes";
 import { restorePreferences } from "./store/display-preferences";
@@ -79,10 +76,7 @@ function AppRoutes() {
     <Routes>
       <Route element={<GuestRoute />}>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/signup" element={<SignupPage />} />
-        <Route path="/verify-otp" element={<VerifyOtpPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-        <Route path="/reset-password" element={<ResetPasswordPage />} />
       </Route>
       <Route path="/reset-password/:token" element={<TokenReset />} />
 

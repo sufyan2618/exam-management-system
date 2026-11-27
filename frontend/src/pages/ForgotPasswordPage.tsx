@@ -19,7 +19,7 @@ export function ForgotPasswordPage() {
   const reset = useMutation({
     mutationFn: authApi.resetPassword,
     onSuccess: () => {
-      navigate("/reset-password", { state: { email: email.trim().toLowerCase() } });
+      navigate("/login", { state: { message: "If an account exists, a password reset link has been sent to your email." } });
     },
   });
 
@@ -36,7 +36,7 @@ export function ForgotPasswordPage() {
       animationSrc={animationSrc}
       animationSegment={[48, 200]}
       title="Forgot your password?"
-      subtitle="We will email you a code so you can choose a new one."
+      subtitle="We will email you a link to choose a new password."
       footer={
         <p>
           Remembered it? <Link to="/login">Back to log in</Link>
@@ -56,7 +56,7 @@ export function ForgotPasswordPage() {
           error={emailError}
         />
         <Button type="submit" loading={reset.isPending} fullWidth>
-          Send code
+          Send reset link
         </Button>
       </form>
     </AuthLayout>

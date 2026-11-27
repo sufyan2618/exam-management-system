@@ -4,6 +4,8 @@ import { notificationsQuery } from "../services/notification.service";
 import { extendTimeBody, forceSubmitBody, interruptionParams, monitorListQuery, reviewEventBody, reviewInterruptionBody } from "../schemas/attempt.schema";
 import { idParams } from "../utils/validators";
 
+import { openSse } from "../lib/sse";
+
 const r = createRouter("Monitoring");
 const E = ["EXAMINER" as const];
 const EA = ["EXAMINER" as const, "ADMIN" as const];
@@ -18,6 +20,7 @@ r.patch("/integrity-events/:id", { summary: "Review / dismiss an integrity event
 r.get("/attempts/:id/interruptions", { summary: "Detected interruptions for an attempt", access: EA, params: idParams }, c.listInterruptions);
 r.post("/attempts/:id/interruptions/:iid/review", { summary: "Approve (credit) or reject an interruption", access: E, params: interruptionParams, body: reviewInterruptionBody }, c.reviewInterruption);
 
+r.get("/me/notifications/stream", {summary:"Live user notifications",access:"any"}, async(req,res)=>openSse(req,res,{userId:req.user!.userId,channels:[`user:${req.user!.userId}`],hello:[{type:"hello",data:{connected:true}}]}));
 r.get("/me/notifications", { summary: "My notifications", access: "any", query: notificationsQuery }, c.notifications);
 r.patch("/me/notifications/:id/read", { summary: "Mark a notification read", access: "any", params: idParams }, c.readNotification);
 

@@ -8,7 +8,7 @@ export function DataPanel({ pending, error, retry, empty, children }: {
   empty?: string;
   children?: ReactNode;
 }) {
-  if (pending) return <section className="account-card" role="status">Loading records…</section>;
+  if (pending) return <section className="account-card loading-skeleton" role="status" aria-label="Loading records"><span/><span/><span/><span/></section>;
   if (error) {
     const status = error instanceof ApiError ? error.status : undefined;
     const message = status === 404 ? "This record or service is unavailable." :
@@ -34,7 +34,7 @@ export function DataTable({ label, columns, rows }: {
       <caption className="exam-visually-hidden">{label}</caption>
       <thead><tr>{columns.map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead>
       <tbody>{rows.map(({ key, cells }) => <tr key={key}>
-        {cells.map((cell, index) => <td key={columns[index]}>{cell}</td>)}
+        {cells.map((cell, index) => <td key={columns[index]} data-label={columns[index]}>{cell}</td>)}
       </tr>)}</tbody>
     </table>
   </div>;

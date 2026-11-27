@@ -16,9 +16,9 @@ export function WorkspaceTools({ workspace }: { workspace: Workspace }) {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const notifications = useExamData<Notification[]>("/api/me/notifications", { refreshMs: 30_000 });
-  const results = useExamData<SearchResult[]>("/api/search?q=" + segment(search), { enabled: search.length >= 2 });
+  const results = useExamData<SearchResult[]>("/api/search?q=" + segment(search), { enabled: search.length >= 2 && workspace.role !== "CANDIDATE" });
   const markRead = useMutation({
-    mutationFn: (id: string) => examWrite("/api/me/notifications/" + segment(id) + "/read", "POST"),
+    mutationFn: (id: string) => examWrite("/api/me/notifications/" + segment(id) + "/read", "PATCH"),
     onSuccess: () => void notifications.refetch(),
   });
   useLiveUpdates("/api/me/notifications/stream", () => void notifications.refetch());

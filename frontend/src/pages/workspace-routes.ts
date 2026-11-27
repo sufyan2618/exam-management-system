@@ -54,6 +54,7 @@ export const workspaces: Workspace[] = [
       { path: "/admin", title: "Platform overview", nav: true },
       { path: "/admin/users", title: "User directory", nav: true },
       { path: "/admin/users/:id", title: "User details" },
+      { path: "/admin/imports", title: "Candidate imports", nav: true },
       { path: "/admin/audit", title: "Audit log", nav: true },
       { path: "/admin/disputes", title: "Escalated disputes", nav: true },
       { path: "/admin/system", title: "System", nav: true },

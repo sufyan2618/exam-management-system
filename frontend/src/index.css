@@ -1514,3 +1514,22 @@ button, a {
 @media (max-width: 1000px) { .exam-paper-grid > .exam-scratchpad { grid-column: 2; } }
 @media (max-width: 700px) { .exam-paper-grid > .exam-scratchpad { grid-column: auto; } }
 .exam-paper-grid[data-single-column="true"] > .exam-scratchpad { grid-column: auto; }
+/* Paper & Ink authentication: the same visual language as the examination. */
+.paper-auth { background:var(--paper); color:var(--ink); }
+.paper-auth .auth-art { background:var(--paper-sunken); color:var(--ink); position:relative; padding:clamp(28px,5vw,72px); display:flex; flex-direction:column; justify-content:space-between; overflow:hidden; }
+.paper-auth .auth-art::before { content:""; position:absolute; inset:0; pointer-events:none; opacity:.35; background:repeating-linear-gradient(transparent 0 39px,var(--rule) 39px 40px); }
+.paper-auth .auth-art > * { position:relative; }
+.paper-auth .auth-art-copy { margin-block:auto; padding-block:80px; }
+.paper-auth .auth-art-copy h2 { color:var(--ink); font:500 clamp(2.5rem,5vw,5rem)/1.08 Georgia,serif; letter-spacing:-.04em; }
+.paper-auth .auth-art-copy em { color:var(--indigo-ink); }
+.paper-auth .auth-art-copy p { color:var(--ink-soft); max-width:36ch; }
+.paper-auth .auth-panel { background:var(--paper-raised); }
+.paper-auth .auth-card { background:transparent; box-shadow:none; }
+.paper-auth .product-brand { display:block; font:600 1.25rem Georgia,serif; }
+.paper-auth .art-eyebrow,.auth-paper-footer { font: .7rem ui-monospace,monospace; letter-spacing:.12em; }
+.paper-auth .form-heading h1 { color:var(--ink); font-family:Georgia,serif; }
+.paper-auth input { background:var(--paper); color:var(--ink); }
+@media(max-width:800px) { .paper-auth .auth-art { min-height:210px; } .paper-auth .auth-art-copy {padding-block:28px;} .paper-auth .auth-art-copy h2 {font-size:2rem;} .auth-paper-footer {display:none;} }
+
+.loading-skeleton { display:grid;gap:16px;padding:28px; }.loading-skeleton span {height:18px;max-width:90%;background:var(--paper-sunken);border-radius:4px;}.loading-skeleton span:first-child {width:40%;height:28px;}.loading-skeleton span:last-child {width:60%;}
+@media(max-width:700px) {.exam-table thead {position:absolute;clip-path:inset(50%);height:1px;width:1px;overflow:hidden;}.exam-table,.exam-table tbody,.exam-table tr,.exam-table td {display:block;width:100%;}.exam-table tr {padding:16px;border-bottom:1px solid var(--rule);}.exam-table td {border:0;padding:5px 0;overflow-wrap:anywhere;}.exam-table td::before {content:attr(data-label);display:block;font-size:.7rem;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.08em;}.exam-table-wrap {overflow:visible;} }

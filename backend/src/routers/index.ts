@@ -12,7 +12,10 @@ import importRouter from "./import.router";
 import questionRouter from "./question.router";
 import usersRouter from "./users.router";
 
+import workspaceRouter from "./workspace.router";
+
 const apiRouter = Router();
+apiRouter.use(workspaceRouter);
 
 apiRouter.use(healthRouter);
 apiRouter.use(authRouter);

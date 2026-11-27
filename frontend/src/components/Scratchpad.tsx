@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { PointerEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { examWrite } from "../api/examination";
+import { loadAttemptSnapshot, saveAttemptSnapshot } from "../store/attempt-runtime";
+import { useAuthStore } from "../store/auth.store";
+import { examGet, examWrite } from "../api/examination";
 import { ActionError } from "./ExamData";
 
 type Point = [number, number];
@@ -13,6 +15,9 @@ const LIMIT = 100_000;
 export function Scratchpad({ path, disabled, initialNotes, initialSketch }: {
   path: string; disabled: boolean; initialNotes?: string; initialSketch?: Stroke[];
 }) {
+  const userId = useAuthStore(state=>state.user?.id);
+  const storageKey = "scratchpad:"+(userId ?? "")+path;
+  const [restored,setRestored] = useState(false);
   const [tab, setTab] = useState("notes");
   const [notes, setNotes] = useState(initialNotes ?? "");
   const [sketch, setSketch] = useState<Stroke[]>(initialSketch ?? []);
@@ -24,8 +29,14 @@ export function Scratchpad({ path, disabled, initialNotes, initialSketch }: {
   const stroke = useRef<Stroke | null>(null);
   const data = JSON.stringify({ notes, sketch });
   const bytes = new TextEncoder().encode(data).length;
+  useEffect(()=>{let alive=true; void (async()=>{
+    const local = await loadAttemptSnapshot(storageKey).catch(()=>undefined) as {notes:string;sketch:Stroke[]} | undefined;
+    const remote = local ? undefined : await examGet<{content:string;strokes?:Stroke[]}>(path+"/scratchpad").catch(()=>undefined);
+    if(alive) {setNotes(local?.notes ?? remote?.content ?? initialNotes ?? "");setSketch(local?.sketch ?? remote?.strokes ?? initialSketch ?? []);setRestored(true);}
+  })();return ()=>{alive=false;};},[storageKey,path,initialNotes,initialSketch]);
+  useEffect(()=>{if(restored) void saveAttemptSnapshot(storageKey,{notes,sketch}).catch(()=>undefined);},[restored,storageKey,notes,sketch]);
   const save = useMutation({
-    mutationFn: (value: string) => examWrite(path + "/scratchpad", "PUT", JSON.parse(value)),
+    mutationFn: (value: string) => examWrite(path + "/scratchpad", "PUT", {content: JSON.parse(value).notes, strokes: JSON.parse(value).sketch}),
     onSuccess: (_response, sent) => setFlushed(sent),
   });
 

@@ -17,7 +17,11 @@ export function PasswordAction({ token }: { token?: string }) {
     mutationFn: () => token
       ? apiRequest("/api/auth/reset-password", { method: "POST", auth: false, body: { token, newPassword: password } })
       : apiRequest("/api/auth/change-password", { method: "POST", body: { currentPassword, newPassword: password } }),
-    onSuccess: async () => {
+    onSuccess: async (response) => {
+      if (!token) {
+        const data = (response as {data: {accessToken: string}}).data;
+        useAuthStore.getState().setAccessToken(data.accessToken);
+      }
       if (token) navigate("/login", { replace: true, state: { message: "Password updated. Sign in with your new password." } });
       else {
         await queryClient.invalidateQueries({ queryKey: ["profile"] });

@@ -11,13 +11,13 @@ import { useExamPreferences } from "../store/exam-preferences";
 import { ExamMarkdown } from "../components/ExamMarkdown";
 import { useAttemptIntegrity } from "../hooks/useAttemptIntegrity";
 import { ActionError, DataPanel } from "../components/ExamData";
-import { loadAttemptQueue, removeAttemptQueue, saveAttemptQueue, useAttemptRuntime } from "../store/attempt-runtime";
+import { loadAttemptSnapshot, saveAttemptSnapshot, loadAttemptQueue, removeAttemptQueue, saveAttemptQueue, useAttemptRuntime } from "../store/attempt-runtime";
 import type { Answer, AnswerChange } from "../store/attempt-runtime";
 import { useConnectionStore } from "../store/connection";
 import { useAuthStore } from "../store/auth.store";
 
 type Question = {
-  id: string; stem: string; type: "SINGLE" | "MULTI" | "WRITTEN"; marks: number;
+  id: string; stem: string; type: "MCQ_SINGLE" | "MCQ_MULTI" | "WRITTEN"; marks: number;
   options?: { id: string; text: string }[]; maxWords?: number; answer?: Answer; flagged?: boolean;
 };
 type Attempt = {
@@ -36,13 +36,21 @@ export function AttemptScreen({ id, review = false, sandbox = false, exit = "/ap
   const query = useQuery({
     queryKey: ["attempt", userId, id],
     queryFn: async ({ signal }) => {
-      const attempt = await examGet<Attempt>(path, signal);
+      const raw = await examGet<Attempt & {answers?: {attemptQuestionId:string; selectedOptionIds:string[]; textAnswer?:string; isMarkedForReview:boolean; clientSeq:number}[]; integrityNotice?: {acknowledgedAt?:string} }>(path, signal).catch(async(error) => {
+        if (!(error instanceof Error) || !("status" in error) || error.status !== 0) throw error;
+        const cached = await loadAttemptSnapshot((userId ?? "") + ":" + id) as {attempt:Attempt;savedAt:number} | undefined;
+        if (!cached || cached.attempt.status !== "IN_PROGRESS") throw error;
+        return {...cached.attempt, answers:undefined, integrityNotice:undefined, remainingSeconds:Math.max(0,cached.attempt.remainingSeconds-Math.max(0,(Date.now()-cached.savedAt)/1000))};
+      });
+      const attempt: Attempt = {...raw, questions: (raw.questions ?? []).map(q => { const a = raw.answers?.find(a => a.attemptQuestionId === q.id); return {...q, answer: q.type === "WRITTEN" ? a?.textAnswer ?? q.answer ?? "" : a?.selectedOptionIds ?? q.answer ?? [], flagged: a?.isMarkedForReview ?? q.flagged}; }), clientSeq: Math.max(0, ...(raw.answers ?? []).map(a => a.clientSeq)), integrityAcknowledged: !!raw.integrityNotice?.acknowledgedAt, integrityLevel: raw.integrityNotice ? "STANDARD" : "OFF"};
       if (!attempt || !Array.isArray(attempt.questions) || !Number.isFinite(attempt.remainingSeconds)) throw new Error("Invalid attempt response");
       if (attempt.questions.some((q) => "isCorrect" in q || "explanation" in q || q.options?.some((o) => "isCorrect" in o))) {
         throw new Error("Candidate question data contains restricted fields");
       }
+      void saveAttemptSnapshot((userId ?? "") + ":" + id, {attempt,savedAt:Date.now()}).catch(() => undefined);
       return { attempt, clock: { remainingSeconds: attempt.remainingSeconds, sessionEpoch: attempt.sessionEpoch, receivedAt: performance.now() } };
     },
+    retry: false,
     staleTime: 0,
     refetchOnMount: "always",
   });
@@ -163,12 +171,13 @@ function AttemptPaper({ id, path, runtimeKey, attempt, initialClock, review, san
       lastSentSequence.current = Math.max(lastSentSequence.current, item.clientSeq);
       try {
         const result = await apiRequest<{ data?: Clock }>(path + "/answers/" + segment(item.questionId), {
-          method: "PUT", body: { ...item, sessionEpoch: sessionEpoch }, timeoutMs: 5000,
+          method: "PUT", body: { selectedOptionIds: Array.isArray(item.answer) ? item.answer : [], textAnswer: typeof item.answer === "string" ? item.answer : null, clientSeq: item.clientSeq }, sessionEpoch, timeoutMs: 5000,
         });
         if (result.data?.sessionEpoch != null && sessionEpoch != null && result.data.sessionEpoch !== sessionEpoch) {
           if (live) setTakenOver(true);
           return;
         }
+        await apiRequest(path + "/flags", {method: "POST", body: {attemptQuestionId: item.questionId, marked: item.flagged}, sessionEpoch});
         const state = useAttemptRuntime.getState();
         const current = state.attempts[runtimeKey];
         if (!current || current.sessionEpoch !== sessionEpoch) return;
@@ -200,8 +209,8 @@ function AttemptPaper({ id, path, runtimeKey, attempt, initialClock, review, san
 
   const canSubmit = lockReady && !staleSession && active && hydrated && !takenOver && !pending?.length && !submit.isPending;
   useEffect(() => {
-    if (remaining === 0 && canSubmit && submit.isIdle) submit.mutate();
-  }, [canSubmit, remaining, submit]);
+    if (remaining === 0 && lockReady && active && hydrated && !takenOver && !submit.isPending && submit.isIdle) submit.mutate();
+  }, [active, hydrated, lockReady, takenOver, remaining, submit]);
 
   const locked = !lockReady || staleSession || !active || !hydrated || takenOver || remaining === 0 || submit.isPending;
   const question = attempt.questions[selected];
@@ -295,7 +304,7 @@ function AttemptPaper({ id, path, runtimeKey, attempt, initialClock, review, san
         <h2>Question {selected + 1} of {attempt.questions.length}</h2><p>{question.marks} marks</p>
         <ExamMarkdown text={question.stem} />
         <fieldset disabled={locked} className="exam-form">
-          <legend>{question.type === "WRITTEN" ? "Write your answer" : question.type === "MULTI" ? "Select all that apply" : "Select one answer"}</legend>
+          <legend>{question.type === "WRITTEN" ? "Write your answer" : question.type === "MCQ_MULTI" ? "Select all that apply" : "Select one answer"}</legend>
           {question.type === "WRITTEN" ? <>
             <textarea aria-label="Written answer" value={typeof answerFor(question).answer === "string" ? String(answerFor(question).answer) : ""} onChange={(event) => change(question, event.target.value, !!answerFor(question).flagged)} />
             {question.maxWords && <small>Word limit: {question.maxWords}</small>}
@@ -303,9 +312,9 @@ function AttemptPaper({ id, path, runtimeKey, attempt, initialClock, review, san
             const value = answerFor(question).answer;
             const checked = Array.isArray(value) ? value.includes(option.id) : value === option.id;
             return <label className="exam-inline exam-option" key={option.id}>
-              <input type={question.type === "MULTI" ? "checkbox" : "radio"} name={question.id} checked={checked} onChange={() => {
+              <input type={question.type === "MCQ_MULTI" ? "checkbox" : "radio"} name={question.id} checked={checked} onChange={() => {
                 const previous = Array.isArray(value) ? value : [];
-                change(question, question.type === "MULTI" ? checked ? previous.filter((entry) => entry !== option.id) : [...previous, option.id] : option.id, !!answerFor(question).flagged);
+                change(question, question.type === "MCQ_MULTI" ? checked ? previous.filter((entry) => entry !== option.id) : [...previous, option.id] : [option.id], !!answerFor(question).flagged);
               }} />{option.text}
             </label>;
           })}

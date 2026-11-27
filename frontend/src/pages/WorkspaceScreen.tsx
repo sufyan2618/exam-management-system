@@ -23,13 +23,14 @@ export function WorkspaceScreen({ screen }: { screen: Screen }) {
     case "/studio/exams/new": return <ExamWizard />;
     case "/studio/exams/:id/sandbox": return id ? <Sandbox id={id} /> : null;
     case "/studio/questions": return <QuestionBank />;
+    case "/admin/imports":
     case "/studio/imports": return <ImportCenter />;
     case "/studio/disputes": return <DisputeInbox path="/api/disputes" />;
     case "/admin": return <AdminOverview />;
     case "/admin/users":
     case "/admin/users/:id": return <AdminUsers id={id} />;
     case "/admin/audit": return <AuditLog />;
-    case "/admin/disputes": return <DisputeInbox path="/api/admin/disputes" />;
+    case "/admin/disputes": return <DisputeInbox path="/api/disputes?status=ESCALATED" />;
     case "/admin/system": return <AdminSystem />;
     default: return id && screen.path.startsWith("/studio/exams/:id")
       ? <ExamHub id={id} tab={screen.path.split("/")[4] ?? "overview"} /> : null;

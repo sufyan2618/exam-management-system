@@ -54,10 +54,10 @@ export function LoginPage() {
       animationSrc={animationSrc}
       animationSegment={[48, 200]}
       title="Welcome back"
-      subtitle="Log in to your Infinity account."
+      subtitle="Sign in to your examination workspace."
       footer={
         <p>
-          Don’t have an account? <Link to="/signup">Create an account</Link>
+          Your institution provides your account credentials.
         </p>
       }
     >

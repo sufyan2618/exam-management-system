@@ -13,7 +13,7 @@ import { AttemptScreen } from "./AttemptScreens";
 
 const states = ["DRAFT", "PUBLISHED", "ONGOING", "COMPLETED", "ARCHIVED"];
 const difficulty = ["EASY", "MEDIUM", "HARD"];
-const questionTypes = ["SINGLE", "MULTI", "WRITTEN"];
+const questionTypes = ["MCQ_SINGLE", "MCQ_MULTI", "WRITTEN"];
 const searchFilter = { name: "q", label: "Search" };
 const columns = (...entries: [string, string][]) => entries.map(([label, key]) => ({ label, key }));
 const examLink = { label: "Examination", render: (row: Row) => <Link to={"/studio/exams/" + segment(row.id)}>{display(row.title)}</Link> };
@@ -21,7 +21,7 @@ const examLink = { label: "Examination", render: (row: Row) => <Link to={"/studi
 export function StudioOverview({ list = false }: { list?: boolean }) {
   const query = useExamData<Exam[]>("/api/exams", { enabled: !list });
   if (list) return <ResourcePanel title="Examinations" path="/api/exams" columns={[examLink, ...columns(["Status", "state"], ["Duration", "durationMinutes"])]}
-    filters={[searchFilter, { name: "state", label: "Status", options: states }]} empty="No exams match these filters."
+    filters={[searchFilter, { name: "status", label: "Status", options: states }]} empty="No exams match these filters."
     toolbar={<Link className="button button-primary" to="/studio/exams/new">Create exam</Link>} />;
   return <>
     <div className="exam-actions"><Link className="button button-primary" to="/studio/exams/new">Create exam</Link><Link to="/studio/questions">Open question bank</Link></div>
@@ -69,7 +69,11 @@ export function ExamWizard() {
         { name: "maxAttempts", label: "Maximum attempts", type: "number", min: 1 },
         { name: "negativeMarking", label: "Negative marking", type: "number", min: 0, step: .25, optional: true },
         { name: "integrityLevel", label: "Integrity level", options: ["OFF", "STANDARD", "STRICT"] },
-        { name: "showAnswers", label: "Show answers after publication", type: "checkbox" },
+        { name: "multiSelectScheme", label: "Multiple selection scoring", options: ["ALL_OR_NOTHING","PARTIAL_PROPORTIONAL","PARTIAL_PENALTY"] },
+        { name: "fairnessMode", label: "Paper fairness", options: ["OFF","BALANCED"] },
+        { name: "lateEntryMinutes", label: "Late entry minutes", type: "number", min:0, max:600 },
+        { name: "disputeWindowHours", label: "Dispute window (hours)", type:"number",min:1,max:720 },
+        { name: "showAnswersAfterPublish", label: "Show answers after publication", type: "checkbox" },
       ] }} done={() => setStep(2)} />}
       {exam && step === 2 && <><ExamQuestions id={exam.id} /><button className="button button-primary" onClick={() => setStep(3)}>Continue to candidates</button></>}
       {exam && step === 3 && <><ExamCandidates id={exam.id} /><button className="button button-primary" onClick={() => setStep(4)}>Review draft</button></>}
@@ -80,17 +84,23 @@ export function ExamWizard() {
 }
 
 function ExamQuestions({ id }: { id: string }) {
-  const path = "/api/exams/" + segment(id) + "/questions";
-  return <>
-    <ResourcePanel title="Selected questions" path={path} columns={columns(["Question", "stem"], ["Type", "type"], ["Marks", "marks"])} empty="No questions selected." />
-    <ResourcePanel title="Question bank" path="/api/questions" columns={columns(["Question", "stem"], ["Type", "type"], ["Marks", "marks"])}
-      empty="No bank questions match the filters." filters={[searchFilter, { name: "difficulty", label: "Difficulty", options: difficulty }]}
-      actions={(row) => row.canAttach === true ? [{ label: "Add to exam", path, fields: [{ name: "questionId", label: "Question ID" }, { name: "marks", label: "Marks", type: "number", min: .25, step: .25, optional: true }], initial: { questionId: row.id } }] : []} />
-  </>;
+  const path = "/api/exams/" + segment(id);
+  const query = useExamData<{questions: {questionId:string; marks:number; section?:string}[]}>(path);
+  const bank = useExamData<{id:string;stem:string;defaultMarks:number}[]>("/api/questions?pageSize=100");
+  const save = useMutation({mutationFn: (questions: {questionId:string;marks:number;section?:string}[]) => examWrite(path + "/questions", "PUT", {questions, syncTotalMarks:true}), onSuccess: () => void query.refetch()});
+  const selected = query.data?.questions ?? [];
+  return <><ActionError error={save.error}/><DataPanel pending={query.isPending || bank.isPending} error={query.error ?? bank.error} retry={() => {void query.refetch(); void bank.refetch();}}>
+    <h2>Selected questions</h2><ol>{selected.map((q,index) => <li key={q.questionId}>{bank.data?.find(b => b.id === q.questionId)?.stem ?? q.questionId} · {q.marks} marks
+      <button className="button" disabled={save.isPending || index===0} onClick={() => {const next=[...selected]; [next[index-1],next[index]]=[next[index],next[index-1]]; save.mutate(next);}}>Move up</button>
+      <button className="button" disabled={save.isPending} onClick={() => save.mutate(selected.filter(item => item.questionId!==q.questionId))}>Remove</button></li>)}</ol>
+    <BlueprintPicker id={id} done={()=>void query.refetch()}/>
+    {!selected.length && <p>Select questions from your bank below.</p>}<h2>Question bank</h2>
+    {bank.data?.filter(q => !selected.some(s => s.questionId===q.id)).map(q => <article className="account-card exam-record" key={q.id}><ExamMarkdown text={q.stem}/><button className="button" disabled={save.isPending} onClick={() => save.mutate([...selected,{questionId:q.id,marks:q.defaultMarks}])}>Add · {q.defaultMarks} marks</button></article>)}
+  </DataPanel></>;
 }
 
 function ExamCandidates({ id }: { id: string }) {
-  const path = "/api/exams/" + segment(id) + "/candidates";
+  const path = "/api/exams/" + segment(id) + "/enrollments";
   const [revision, setRevision] = useState(0);
   return <>
     <details className="account-card"><summary>Enroll by email</summary>
@@ -98,9 +108,9 @@ function ExamCandidates({ id }: { id: string }) {
     </details>
     <ResourcePanel key={revision} title="Enrolled candidates" path={path} columns={columns(["Candidate", "name"], ["Enrollment", "status"], ["Attempt", "attemptStatus"], ["Extra minutes", "extraMinutes"])} empty="No candidates enrolled."
       toolbar={<Link to="/studio/imports">Import candidates</Link>}
-      actions={(row) => row.canEdit === true ? [
-        { label: "Set extra time", method: "PATCH", path: path + "/" + segment(row.id), fields: [{ name: "extraMinutes", label: "Extra minutes", type: "number", min: 0 }, { name: "reason", label: "Reason" }] },
-        { label: "Remove enrollment", method: "DELETE", path: path + "/" + segment(row.id), confirm: String(row.name ?? row.id) },
+      actions={(row) => row.id ? [
+        { label: "Set extra time", method: "PATCH", path: path + "/" + segment(String(row.candidateId)), fields: [{ name: "extraTimeMinutes", label: "Extra minutes", type: "number", min: 0 }, { name: "reason", label: "Reason" }] },
+        { label: "Remove enrollment", method: "DELETE", path: path + "/" + segment(String(row.candidateId)), confirm: String(row.name ?? row.id) },
       ] : []} />
   </>;
 }
@@ -112,8 +122,8 @@ function PublishChecklist({ id, title, onPublished }: { id: string; title: strin
     <Link to={"/studio/exams/" + segment(id) + "/sandbox"}>Preview as candidate</Link>
     <DataPanel pending={query.isPending} error={query.error} retry={() => void query.refetch()}>
       {query.data && <>
-        <ul>{query.data.checks.map((check) => <li key={check.id}>{check.passed ? "Passed" : "Needs attention"} · {check.label}</li>)}</ul>
-        {query.data.canPublish && <ActionForm action={{ label: "Publish exam", path: path + "/publish", confirm: title }} done={onPublished} />}
+        <ul>{(query.data.checks ?? []).map((check) => <li key={check.id}>{check.passed ? "Passed" : "Needs attention"} · {check.label}</li>)}</ul>
+        {query.data.canPublish && <ActionForm action={{ label: "Publish exam", path: path + "/publish", confirm: title, fields:[{name:"acknowledgeWarnings",label:"I reviewed any warnings",type:"checkbox"}] }} done={onPublished} />}
       </>}
     </DataPanel>
   </>;
@@ -136,30 +146,36 @@ export function ExamHub({ id, tab }: { id: string; tab: string }) {
         ] }} done={() => setRevision((value) => value + 1)} />
       </details>
       {!!revision && <p role="status">Announcement sent.</p>}
-      <ResourcePanel title="Live attempts" path={path + "/monitor"} refreshMs={5000} stream={path + "/monitor/stream"} empty="No attempts to monitor."
-        columns={columns(["Candidate", "candidateName"], ["Answered", "answered"], ["Last seen", "lastSeenAt"], ["Connection", "connection"], ["Indicators", "incidentCount"])}
-        actions={(row) => row.canManage === true ? [
-          { label: "Extend time", path: "/api/attempts/" + segment(row.id) + "/extend", fields: [{ name: "minutes", label: "Extra minutes", type: "number", min: 1 }, { name: "reason", label: "Reason" }] },
+      <ResourcePanel title="Live attempts" path={path + "/monitor/attempts"} refreshMs={5000} stream={path + "/monitor/stream"} empty="No attempts to monitor."
+        columns={[...columns(["Candidate", "candidateName"], ["Answered", "answered"], ["Last seen", "lastSeenAt"], ["Connection", "connection"], ["Indicators", "incidentCount"]), {label:"Details",render:row=><MonitorDetails id={row.id}/>}]}
+        actions={(row) => row.id ? [
+          { label: "Extend time", path: "/api/attempts/" + segment(row.id) + "/extend-time", fields: [{ name: "minutes", label: "Extra minutes", type: "number", min: 1 }, { name: "reason", label: "Reason" }] },
           { label: "Force submit", path: "/api/attempts/" + segment(row.id) + "/force-submit", confirm: String(row.candidateName ?? row.id), fields: [{ name: "reason", label: "Reason" }] },
         ] : []} />
     </>;
     case "grading": return <>
+      <details className="account-card"><summary>Regrade and moderation</summary>
+        <ActionForm action={{label:"Regrade objective answers",path:path+"/regrade",fields:[{name:"reason",label:"Reason",min:5,max:1000}]}} done={()=>setRevision(v=>v+1)}/>
+        <ActionForm action={{label:"Apply moderation",path:path+"/moderation",method:"PATCH",fields:[{name:"mode",label:"Mode",options:["NONE","ADDITIVE"]},{name:"offset",label:"Score adjustment",type:"number",step:.25,min:-1000,max:1000},{name:"note",label:"Explanation",min:5,max:500}]}} done={()=>setRevision(v=>v+1)}/>
+      </details>
       <label className="exam-inline"><input type="checkbox" checked={blind} onChange={(event) => setBlind(event.target.checked)} /> Blind grading</label>
-      <ResourcePanel key={String(blind)} title="Grading queue" path={path + "/grading?blind=" + blind} empty="The grading queue is empty."
+      <ResourcePanel key={String(blind)+revision} title="Grading queue" path={path + "/grading/queue?blind=" + blind} empty="The grading queue is empty."
         columns={columns(...(blind ? [] : [["Candidate", "candidateName"]] as [string, string][]), ["Question", "question"], ["Answer", "answer"], ["Rubric", "rubric"], ["Status", "status"])}
-        actions={(row) => row.canGrade === true ? [{ label: "Save grade", path: path + "/grading/" + segment(row.id), method: "PUT", fields: [{ name: "score", label: "Marks", type: "number", min: 0, max: typeof row.maxMarks === "number" ? row.maxMarks : undefined, step: .25 }, { name: "feedback", label: "Feedback", type: "textarea", optional: true }] }] : []} />
+        actions={(row) => row.id ? [{ label: "Save grade", path: "/api/answers/" + segment(row.id) + "/grade", method: "PUT", fields: [{ name: "score", label: "Marks", type: "number", min: 0, max: typeof row.maxMarks === "number" ? row.maxMarks : undefined, step: .25 }, { name: "feedback", label: "Feedback", type: "textarea", optional: true }] }] : []} />
     </>;
-    case "results": return <ResourcePanel title="Exam results" path={path + "/results" } empty="No results to display."
-      columns={columns(["Candidate", "candidateName"], ["Score", "score"], ["Status", "status"])}
-      actions={(row) => row.canPublish === true ? [{ label: "Publish result", path: path + "/results/" + segment(row.id) + "/publish", confirm: String(row.candidateName ?? row.id) }] : row.canUnpublish === true ? [{ label: "Unpublish result", path: path + "/results/" + segment(row.id) + "/unpublish", fields: [{ name: "reason", label: "Reason" }] }] : []} />;
+    case "results": return <>
+      <ActionForm action={{label:"Publish results",path:path+"/results/publish",confirm:exam?.title,fields:[{name:"acknowledge",label:"I reviewed the grading state and results",type:"checkbox"}]}} done={() => setRevision(v=>v+1)}/>
+      <ActionForm action={{label:"Unpublish results",path:path+"/results/unpublish",fields:[{name:"note",label:"Reason",min:5,max:500}]}} done={() => setRevision(v=>v+1)}/>
+      <ResourcePanel key={revision} title="Exam results" path={path+"/results"} empty="No results to display." columns={columns(["Candidate","candidateName"],["Score","totalScore"],["Grading","gradingState"],["Published","isPublished"])}/>
+    </>;
     case "analytics": return <Analytics id={id} />;
     case "disputes": return <DisputeInbox path={path + "/disputes"} />;
     default: return <DataPanel pending={query.isPending} error={query.error} retry={() => void query.refetch()}>
       {exam && <section className="account-card exam-record">
         <span className="exam-stamp">{exam.state}</span><h2>{exam.title}</h2>
         <p>{formatDate(exam.startsAt)} to {formatDate(exam.endsAt)}</p>{exam.instructions && <ExamMarkdown text={exam.instructions} />}
-        {tab === "settings" && exam.canEdit && <ActionForm action={{ path, method: "PATCH", label: "Update exam", fields: basicFields.slice(0, 2), initial: exam }} done={() => void query.refetch()} />}
-        {tab === "settings" && exam.canArchive && <ActionForm action={{ path: path + "/archive", label: "Archive exam", confirm: exam.title }} done={() => void query.refetch()} />}
+        {tab === "settings" && exam.state === "DRAFT" && <ActionForm action={{ path, method: "PATCH", label: "Update exam", fields: basicFields, initial: exam }} done={() => void query.refetch()} />}
+        {tab === "settings" && exam.state === "COMPLETED" && <ActionForm action={{ path: path + "/archive", label: "Archive exam", confirm: exam.title }} done={() => void query.refetch()} />}
         {tab !== "settings" && <ExamReports id={id} />}
         {tab !== "settings" && exam.state === "DRAFT" && <PublishChecklist id={id} title={exam.title} onPublished={() => void query.refetch()} />}
       </section>}
@@ -168,8 +184,8 @@ export function ExamHub({ id, tab }: { id: string; tab: string }) {
 }
 
 function ExamReports({ id }: { id: string }) {
-  const path = "/api/reports/exams/" + segment(id);
-  const pdf = useDownload(path + "/pdf", "examination.pdf");
+  const path = "/api/exams/" + segment(id);
+  const pdf = useDownload(path + "/report.pdf", "examination.pdf");
   const csv = useDownload(path + "/results.csv", "examination-results.csv");
   return <div className="exam-actions">
     <button className="button" disabled={pdf.isPending} onClick={() => pdf.mutate()}>Download exam PDF</button>
@@ -180,6 +196,7 @@ function ExamReports({ id }: { id: string }) {
 
 function Analytics({ id }: { id: string }) {
   const path = "/api/exams/" + segment(id) + "/analytics";
+  const fairness = useExamData<{mode:string;attempts:number;difficultyIndex:{mean:number;spread:number};note:string}>("/api/exams/"+segment(id)+"/fairness");
   const query = useExamData<{ mean?: number; median?: number; passRate?: number; completionRate?: number; distribution?: { range: string; count: number }[]; fairness?: string }>(path);
   return <DataPanel pending={query.isPending} error={query.error} retry={() => void query.refetch()}>
     {query.data && <section className="account-card exam-record">
@@ -191,6 +208,7 @@ function Analytics({ id }: { id: string }) {
       </ul></>}
       {query.data.fairness && <><h3>Fairness</h3><p>{query.data.fairness}</p></>}
     </section>}
+    {fairness.data && <section className="account-card exam-record"><h2>Paper fairness</h2><p>{fairness.data.mode} · {fairness.data.attempts} completed attempts</p><p>Mean difficulty {fairness.data.difficultyIndex.mean} · Spread {fairness.data.difficultyIndex.spread}</p><p>{fairness.data.note}</p></section>}
     <ResourcePanel title="Question analytics" path={path + "/questions"} empty="No question statistics are available."
       columns={columns(["Question", "stem"], ["Correctness", "correctRate"], ["Skip rate", "skipRate"], ["Discrimination", "discrimination"])} />
   </DataPanel>;
@@ -198,15 +216,15 @@ function Analytics({ id }: { id: string }) {
 
 export function DisputeInbox({ path }: { path: string }) {
   return <ResourcePanel title="Dispute inbox" path={path} empty="No disputes in this inbox."
-    filters={[{ name: "status", label: "Status", options: ["OPEN", "ESCALATED", "RESOLVED"] }]}
-    columns={columns(["Exam", "examTitle"], ["Type", "type"], ["Reason", "reason"], ["Status", "status"], ["Due", "dueAt"])}
+    filters={[{ name: "status", label: "Status", options: ["OPEN", "UNDER_REVIEW", "ESCALATED", "RESOLVED_ACCEPTED", "RESOLVED_REJECTED"] }]}
+    columns={[...columns(["Exam", "examId"], ["Type", "type"], ["Reason", "reason"], ["Status", "status"], ["Due", "slaDueAt"]),{label:"Evidence",render:row=><DisputeDetails id={row.id}/>}]}
     actions={(row) => [
-      ...(row.canResolve === true ? [{ label: "Resolve dispute", path: "/api/disputes/" + segment(row.id) + "/resolve", fields: [
-        { name: "decision", label: "Decision", options: ["ACCEPT", "REJECT", "PARTIAL"] },
-        { name: "score", label: "Revised score", type: "number" as const, min: 0, step: .25, optional: true },
+      ...(row.canResolve === row.id ? [{ label: "Resolve dispute", path: "/api/disputes/" + segment(row.id) + "/resolve", fields: [
+        { name: "outcome", label: "Decision", options: ["ACCEPT", "REJECT", "PARTIAL"] },
+        { name: "newScore", label: "Revised score", type: "number" as const, min: 0, step: .25, optional: true },
         { name: "note", label: "Reviewer note", type: "textarea" as const },
       ] }] : []),
-      ...(row.canEscalate === true ? [{ label: "Escalate", path: "/api/disputes/" + segment(row.id) + "/escalate", fields: [{ name: "note", label: "Reason", type: "textarea" as const }] }] : []),
+      ...(row.canEscalate === row.id ? [{ label: "Escalate", path: "/api/disputes/" + segment(row.id) + "/escalate", fields: [{ name: "note", label: "Reason", type: "textarea" as const }] }] : []),
     ]} />;
 }
 
@@ -216,29 +234,31 @@ export function QuestionBank() {
   const [show, setShow] = useState(false);
   const fields: Field[] = [
     { name: "stem", label: "Question text", type: "textarea" },
-    { name: "type", label: "Question type", options: questionTypes },
     { name: "difficulty", label: "Difficulty", options: difficulty },
-    { name: "marks", label: "Marks", type: "number", min: .25, step: .25 },
+    { name: "defaultMarks", label: "Marks", type: "number", min: .25, step: .25 },
     { name: "tags", label: "Tags (comma separated)", optional: true },
     { name: "explanation", label: "Explanation", type: "textarea", optional: true },
   ];
   return <>
+    <ResourcePanel title="Categories" path="/api/categories" empty="Create a category for your questions." columns={columns(["Category", "name"])} />
+    <ActionForm action={{label:"Create category",path:"/api/categories",fields:[{name:"name",label:"Category name"}]}} done={() => setRevision(value => value+1)}/>
     <button className="button button-primary" onClick={() => setShow(!show)}>{show ? "Close question editor" : "New question"}</button>
     {show && <section className="account-card exam-record"><QuestionEditor onSave={() => { setShow(false); setRevision((value) => value + 1); }} /></section>}
     <ResourcePanel key={revision} title="Question bank" path={path} columns={columns(["Question", "stem"], ["Type", "type"], ["Difficulty", "difficulty"], ["Marks", "marks"], ["Version", "version"])}
-      empty="No questions match these filters." filters={[searchFilter, { name: "category", label: "Category" }, { name: "difficulty", label: "Difficulty", options: difficulty }, { name: "type", label: "Type", options: questionTypes }]}
-      actions={(row) => row.canEdit === true ? [
+      empty="No questions match these filters." filters={[searchFilter, { name: "categoryId", label: "Category" }, { name: "difficulty", label: "Difficulty", options: difficulty }, { name: "type", label: "Type", options: questionTypes }]}
+      actions={(row) => row.id ? [
         { label: "Edit question", method: "PATCH", path: path + "/" + segment(row.id), fields, initial: row },
         { label: "Duplicate question", path: path + "/" + segment(row.id) + "/duplicate" },
-        { label: "Archive question", path: path + "/" + segment(row.id) + "/archive", confirm: row.id },
+        { label: "Archive question", method: "DELETE", path: path + "/" + segment(row.id), confirm: row.id },
       ] : []} />
   </>;
 }
 
 function QuestionEditor({ onSave }: { onSave: () => void }) {
-  const [kind, setKind] = useState("SINGLE");
+  const [kind, setKind] = useState("MCQ_SINGLE");
   const [options, setOptions] = useState([{ id: newOperationKey(), text: "", isCorrect: false }, { id: newOperationKey(), text: "", isCorrect: false }]);
   const [stem, setStem] = useState("");
+  const categories = useExamData<{id:string;name:string}[]>("/api/categories");
   const save = useMutation({
     mutationFn: (body: unknown) => examWrite("/api/questions", "POST", body),
     onSuccess: onSave,
@@ -248,7 +268,7 @@ function QuestionEditor({ onSave }: { onSave: () => void }) {
     event.preventDefault();
     if (!enough) return;
     const data = new FormData(event.currentTarget);
-    save.mutate({ stem: stem.trim(), type: kind, marks: Number(data.get("marks")), difficulty: data.get("difficulty"),
+    save.mutate({ stem: stem.trim(), type: kind, categoryId: data.get("categoryId"), defaultMarks: Number(data.get("marks")), difficulty: data.get("difficulty"),
       tags: String(data.get("tags")).split(",").map((tag) => tag.trim()).filter(Boolean),
       ...(kind === "WRITTEN" ? { rubric: data.get("rubric") } : { options: options.map(({ text, isCorrect }) => ({ text: text.trim(), isCorrect })) }) });
   }}>
@@ -261,13 +281,13 @@ function QuestionEditor({ onSave }: { onSave: () => void }) {
     {stem && <details><summary>Preview</summary><ExamMarkdown text={stem} /></details>}
     <label>Marks<input type="number" name="marks" min=".25" step=".25" required /></label>
     <label>Difficulty<select name="difficulty">{difficulty.map((value) => <option key={value}>{value}</option>)}</select></label>
-    <label>Tags<input name="tags" /></label>
+    <label>Category<select name="categoryId" required><option value="">Select category</option>{categories.data?.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label><label>Tags<input name="tags" /></label>
     {kind === "WRITTEN" ? <label>Rubric<textarea name="rubric" required /></label> : <fieldset className="exam-form">
       <legend>Answer options</legend>
       {options.map((option, index) => <div key={option.id} className="exam-actions">
         <label>Option {index + 1}<input required value={option.text} onChange={(event) => setOptions((items) => items.map((item) => item.id === option.id ? { ...item, text: event.target.value } : item))} /></label>
-        <label className="exam-inline"><input type={kind === "SINGLE" ? "radio" : "checkbox"} name="correct" checked={option.isCorrect}
-          onChange={(event) => setOptions((items) => items.map((item) => item.id === option.id ? { ...item, isCorrect: event.target.checked } : kind === "SINGLE" ? { ...item, isCorrect: false } : item))} />Correct</label>
+        <label className="exam-inline"><input type={kind === "MCQ_SINGLE" ? "radio" : "checkbox"} name="correct" checked={option.isCorrect}
+          onChange={(event) => setOptions((items) => items.map((item) => item.id === option.id ? { ...item, isCorrect: event.target.checked } : kind === "MCQ_SINGLE" ? { ...item, isCorrect: false } : item))} />Correct</label>
         <button type="button" className="button" disabled={options.length <= 2} onClick={() => setOptions((items) => items.filter((item) => item.id !== option.id))}>Remove</button>
       </div>)}
       <button type="button" className="button" disabled={options.length >= 6} onClick={() => setOptions((items) => [...items, { id: newOperationKey(), text: "", isCorrect: false }])}>Add option</button>
@@ -280,13 +300,32 @@ export function Sandbox({ id }: { id: string }) {
   const [key, setKey] = useState(newOperationKey);
   const [attemptId, setAttemptId] = useState<string>();
   const launch = useMutation({
-    mutationFn: () => examWrite<{ attemptId: string }>("/api/exams/" + segment(id) + "/sandbox", "POST", {}, key),
+    mutationFn: () => examWrite<{ attemptId: string }>("/api/exams/" + segment(id) + "/sandbox/attempts", "POST", {}, key),
     onSuccess: (data) => { if (data?.attemptId) setAttemptId(data.attemptId); setKey(newOperationKey()); },
   });
   const exit = "/studio/exams/" + segment(id);
-  if (attemptId) return <AttemptScreen id={attemptId} sandbox exit={exit} />;
+  const reset = useMutation({mutationFn:()=>examWrite("/api/exams/"+segment(id)+"/sandbox/attempts","DELETE"), onSuccess:()=>setAttemptId(undefined)});
+  if (attemptId) return <><button className="button" disabled={reset.isPending} onClick={()=>reset.mutate()}>Reset sandbox</button><ActionError error={reset.error}/><AttemptScreen id={attemptId} sandbox exit={exit} /></>;
   return <section className="account-card exam-record"><p>This preview uses a sandbox attempt. It does not affect real results.</p>
     <button className="button button-primary" disabled={launch.isPending} onClick={() => launch.mutate()}>Start candidate preview</button>
     <ActionError error={launch.error} /><Link to={exit}>Return to exam</Link>
   </section>;
+}
+
+function DisputeDetails({id}:{id:string}) {
+ const [open,setOpen]=useState(false);
+ const query=useExamData<{question?:{stem:string;currentScore:number;marks:number};events:{at:string;action:string;note?:string}[];awaitingCountersign?:boolean}>("/api/disputes/"+segment(id),{enabled:open});
+ return <details onToggle={e=>setOpen(e.currentTarget.open)}><summary>Open case</summary>{open && <DataPanel pending={query.isPending} error={query.error} retry={()=>void query.refetch()}>{query.data?.question && <><ExamMarkdown text={query.data.question.stem}/><p>{query.data.question.currentScore} / {query.data.question.marks}</p></>}<ol>{query.data?.events.map((e,i)=><li key={i}>{formatDate(e.at)} · {e.action} {e.note}</li>)}</ol><ActionForm action={{label:"Add comment",path:"/api/disputes/"+segment(id)+"/comments",fields:[{name:"note",label:"Comment",min:2,max:2000}]}} done={()=>void query.refetch()}/>{query.data?.awaitingCountersign && <><ActionForm action={{label:"Countersign resolution",path:"/api/disputes/"+segment(id)+"/countersign",confirm:id}} done={()=>void query.refetch()}/><ActionForm action={{label:"Reject proposal",path:"/api/disputes/"+segment(id)+"/reject-proposal",fields:[{name:"note",label:"Reason",min:3,max:1000}]}} done={()=>void query.refetch()}/></>}</DataPanel>}</details>;
+}
+function MonitorDetails({id}:{id:string}) {
+ const [open,setOpen]=useState(false);
+ const query=useExamData<{candidate?:{fullName:string};status:string;answered:number;remainingSeconds:number;events:{id:string;type:string;severity:string;occurredAt:string;reviewStatus:string}[]}>("/api/attempts/"+segment(id)+"/monitor",{enabled:open});
+ return <details onToggle={e=>setOpen(e.currentTarget.open)}><summary>Attempt timeline</summary>{open && <DataPanel pending={query.isPending} error={query.error} retry={()=>void query.refetch()}><h3>{query.data?.candidate?.fullName}</h3><p>{query.data?.status} · {query.data?.answered} answered · {query.data?.remainingSeconds} seconds remaining</p>{query.data?.events.map(e=><article key={e.id}><p>{formatDate(e.occurredAt)} · {e.type} · {e.severity} · {e.reviewStatus}</p><ActionForm action={{label:"Review indicator",path:"/api/integrity-events/"+segment(e.id),method:"PATCH",fields:[{name:"status",label:"Review",options:["REVIEWED","DISMISSED","CONFIRMED"]},{name:"note",label:"Review note",min:3,max:1000}]}} done={()=>void query.refetch()}/></article>)}<ResourcePanel title="Interruptions" path={"/api/attempts/"+segment(id)+"/interruptions"} empty="No interruptions recorded." columns={columns(["Started","startedAt"],["Gap seconds","gapSeconds"],["Status","status"])} actions={row=>[{label:"Review interruption",path:"/api/attempts/"+segment(id)+"/interruptions/"+segment(row.id)+"/review",fields:[{name:"approve",label:"Approve interruption credit",type:"checkbox"},{name:"note",label:"Reason"}]}]}/></DataPanel>}</details>;
+}
+
+function BlueprintPicker({id,done}:{id:string;done:()=>void}) {
+ const categories=useExamData<{id:string;name:string}[]>("/api/categories");
+ const [categoryId,setCategory]=useState("");const [difficulty,setDifficulty]=useState("MEDIUM");const [count,setCount]=useState(1);const [marksEach,setMarks]=useState(1);
+ const select=useMutation({mutationFn:()=>examWrite("/api/exams/"+segment(id)+"/questions/auto-select","POST",{slots:[{categoryId,difficulty,count,marksEach}],replace:false,syncTotalMarks:true}),onSuccess:done});
+ return <details className="account-card"><summary>Select questions by blueprint</summary><form className="exam-form" onSubmit={e=>{e.preventDefault();select.mutate();}}><label>Category<select required value={categoryId} onChange={e=>setCategory(e.target.value)}><option value="">Select category</option>{categories.data?.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label><label>Difficulty<select value={difficulty} onChange={e=>setDifficulty(e.target.value)}>{["EASY","MEDIUM","HARD"].map(d=><option key={d}>{d}</option>)}</select></label><label>Count<input required type="number" min={1} max={500} value={count} onChange={e=>setCount(Number(e.target.value))}/></label><label>Marks each<input required type="number" min={.25} step={.25} value={marksEach} onChange={e=>setMarks(Number(e.target.value))}/></label><button className="button" disabled={select.isPending}>Add blueprint questions</button><ActionError error={select.error}/></form></details>;
 }
