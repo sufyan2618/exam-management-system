@@ -3,11 +3,22 @@ import { z } from "zod";
 
 dotenv.config();
 
+/** Docker Compose often injects `VAR=` as "" for unset optionals — treat blanks as missing. */
+const blankToUndef = (v: unknown) => (typeof v === "string" && v.trim() === "" ? undefined : v);
+
 const bool = (def: boolean) =>
-  z
-    .enum(["true", "false"])
-    .optional()
-    .transform((v) => (v === undefined ? def : v === "true"));
+  z.preprocess(
+    blankToUndef,
+    z
+      .enum(["true", "false"])
+      .optional()
+      .transform((v) => (v === undefined ? def : v === "true")),
+  );
+
+const optionalString = z.preprocess(blankToUndef, z.string().optional());
+const optionalEmail = z.preprocess(blankToUndef, z.string().email().optional());
+const optionalUrl = z.preprocess(blankToUndef, z.string().url().optional());
+const optionalSecret = z.preprocess(blankToUndef, z.string().min(16).optional());
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
@@ -17,14 +28,14 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(16, "JWT_SECRET must be at least 16 characters"),
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).default(900),
   REFRESH_TTL_DAYS: z.coerce.number().int().min(1).default(7),
-  COOKIE_DOMAIN: z.string().optional(),
+  COOKIE_DOMAIN: optionalString,
   COOKIE_SECURE: bool(false),
   CLIENT_URL: z.string().url("CLIENT_URL must be a valid URL"),
-  CORS_ORIGINS: z.string().optional(),
-  EMAIL_FROM: z.string().email().optional(),
-  BREVO_API_KEY: z.string().optional(),
-  REPORT_HMAC_SECRET: z.string().min(16).optional(),
-  PUBLIC_VERIFY_BASE_URL: z.string().url().optional(),
+  CORS_ORIGINS: optionalString,
+  EMAIL_FROM: optionalEmail,
+  BREVO_API_KEY: optionalString,
+  REPORT_HMAC_SECRET: optionalSecret,
+  PUBLIC_VERIFY_BASE_URL: optionalUrl,
   INSTITUTION_NAME: z.string().default("Secure Exam Platform"),
   GRACE_SECONDS: z.coerce.number().int().min(0).max(60).default(5),
   MAX_UPLOAD_MB: z.coerce.number().min(1).max(50).default(5),
@@ -33,7 +44,7 @@ const envSchema = z.object({
   RATE_LIMIT_IP_PER_MIN: z.coerce.number().int().default(3000),
   RATE_LIMIT_USER_PER_MIN: z.coerce.number().int().default(300),
   RATE_LIMIT_AUTOSAVE_PER_MIN: z.coerce.number().int().default(120),
-  METRICS_TOKEN: z.string().optional(),
+  METRICS_TOKEN: optionalString,
   ALLOW_DEMO_SEED: bool(false),
   DISPUTE_SLA_HOURS: z.coerce.number().int().default(72),
   DISPUTE_COUNTERSIGN_MARKS: z.coerce.number().default(2),

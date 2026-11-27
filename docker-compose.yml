@@ -1,28 +1,45 @@
 name: infinity
 
+# Shared API/worker image. Secrets and knobs come from the root `.env`
+# (see `.env.example`). MONGO_URI / REDIS_URL are injected for the compose network.
 x-backend: &backend
   build:
     context: ./backend
     dockerfile: Dockerfile
   image: infinity-backend
   env_file:
-    - .env
+    - path: .env
+      required: false
   environment:
     NODE_ENV: ${NODE_ENV:-production}
     PORT: 5000
     # Replica set is required for multi-document transactions.
     MONGO_URI: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongodb:27017/${MONGO_DB}?authSource=admin&replicaSet=rs0&directConnection=true
     REDIS_URL: redis://redis:6379
-    CLIENT_URL: ${CLIENT_URL}
-    JWT_SECRET: ${JWT_SECRET}
+    CLIENT_URL: ${CLIENT_URL:-http://localhost}
+    CORS_ORIGINS: ${CORS_ORIGINS:-}
+    JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+    REPORT_HMAC_SECRET: ${REPORT_HMAC_SECRET:?REPORT_HMAC_SECRET is required}
     ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-900}
     REFRESH_TTL_DAYS: ${REFRESH_TTL_DAYS:-7}
-    EMAIL_FROM: ${EMAIL_FROM:-}
-    BREVO_API_KEY: ${BREVO_API_KEY:-}
-    REPORT_HMAC_SECRET: ${REPORT_HMAC_SECRET:-}
+    COOKIE_SECURE: ${COOKIE_SECURE:-false}
+    COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+    PUBLIC_VERIFY_BASE_URL: ${PUBLIC_VERIFY_BASE_URL:-}
     INSTITUTION_NAME: ${INSTITUTION_NAME:-Secure Exam Platform}
     GRACE_SECONDS: ${GRACE_SECONDS:-5}
+    MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-5}
+    UPLOAD_DIR: /app/data/uploads
+    LOG_LEVEL: ${LOG_LEVEL:-info}
     ALLOW_DEMO_SEED: ${ALLOW_DEMO_SEED:-false}
+    DISPUTE_SLA_HOURS: ${DISPUTE_SLA_HOURS:-72}
+    DISPUTE_COUNTERSIGN_MARKS: ${DISPUTE_COUNTERSIGN_MARKS:-2}
+    RATE_LIMIT_IP_PER_MIN: ${RATE_LIMIT_IP_PER_MIN:-3000}
+    RATE_LIMIT_USER_PER_MIN: ${RATE_LIMIT_USER_PER_MIN:-300}
+    RATE_LIMIT_AUTOSAVE_PER_MIN: ${RATE_LIMIT_AUTOSAVE_PER_MIN:-120}
+    METRICS_TOKEN: ${METRICS_TOKEN:-}
+    # Optional — only set these in `.env` if you want outbound email.
+    EMAIL_FROM: ${EMAIL_FROM:-}
+    BREVO_API_KEY: ${BREVO_API_KEY:-}
   restart: unless-stopped
   networks:
     - app
@@ -38,31 +55,22 @@ services:
     restart: unless-stopped
     command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
     environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
-      MONGO_INITDB_DATABASE: ${MONGO_DB}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:?MONGO_USER is required}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?MONGO_PASSWORD is required}
+      MONGO_INITDB_DATABASE: ${MONGO_DB:-exam}
     volumes:
       - mongo_data:/data/db
-      - ./docker/mongo-rs-init.js:/docker-entrypoint-initdb.d/01-rs.js:ro
     healthcheck:
+      # Bootstrap rs0 on first boot (auth required once the root user exists).
       test:
         [
-          "CMD",
-          "mongosh",
-          "--quiet",
-          "--username",
-          "${MONGO_USER}",
-          "--password",
-          "${MONGO_PASSWORD}",
-          "--authenticationDatabase",
-          "admin",
-          "--eval",
-          "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0', members:[{_id:0, host:'mongodb:27017'}]}).ok }",
+          "CMD-SHELL",
+          "mongosh --quiet -u \"$$MONGO_INITDB_ROOT_USERNAME\" -p \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval \"try { quit(rs.status().ok ? 0 : 1) } catch (e) { quit(rs.initiate({_id:'rs0', members:[{_id:0, host:'mongodb:27017'}]}).ok ? 0 : 1) }\"",
         ]
       interval: 10s
-      timeout: 10s
-      retries: 12
-      start_period: 30s
+      timeout: 15s
+      retries: 15
+      start_period: 40s
     networks:
       - app
     logging:
@@ -102,11 +110,17 @@ services:
       - backend_logs:/app/logs
       - backend_uploads:/app/data/uploads
     healthcheck:
-      test: ["CMD", "bun", "-e", "const r=await fetch('http://127.0.0.1:5000/api/v1/health/live'); if(!r.ok) process.exit(1)"]
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "const r=await fetch('http://127.0.0.1:5000/api/v1/health/ready'); if(!r.ok) process.exit(1)",
+        ]
       interval: 15s
       timeout: 5s
-      retries: 8
-      start_period: 25s
+      retries: 10
+      start_period: 40s
 
   worker:
     <<: *backend
@@ -121,6 +135,20 @@ services:
     volumes:
       - worker_logs:/app/logs
       - backend_uploads:/app/data/uploads
+
+  # Optional demo data: docker compose --profile seed run --rm seed
+  seed:
+    <<: *backend
+    profiles: ["seed"]
+    command: ["bun", "src/scripts/seed.ts"]
+    environment:
+      ALLOW_DEMO_SEED: "true"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
 
   frontend:
     build:
