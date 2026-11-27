@@ -17,7 +17,16 @@ const difficulty = ["EASY", "MEDIUM", "HARD"];
 const questionTypes = ["MCQ_SINGLE", "MCQ_MULTI", "WRITTEN"];
 const searchFilter = { name: "q", label: "Search" };
 const columns = (...entries: [string, string][]) => entries.map(([label, key]) => ({ label, key }));
-const examLink = { label: "Examination", render: (row: Row) => <Link to={"/studio/exams/" + segment(row.id)}>{display(row.title)}</Link> };
+const examStageName = (value: unknown) => {
+  const stage = String(value ?? "UNKNOWN").replaceAll("_", " ").toLowerCase();
+  return stage.replace(/\b\w/g, (letter) => letter.toUpperCase());
+};
+const examLink = { label: "Examination", render: (row: Row) => <div className="exam-list-title-cell"><Link to={"/studio/exams/" + segment(row.id)}>{display(row.title)}</Link><span>Open exam workspace <span aria-hidden="true">→</span></span></div> };
+const examListColumns = [
+  examLink,
+  { label: "Status", render: (row: Row) => <span className={`exam-state-badge state-${String(row.state ?? "unknown").toLowerCase()}`}><span aria-hidden="true" />{examStageName(row.state)}</span> },
+  { label: "Duration", render: (row: Row) => <span className="exam-duration-value">{row.durationMinutes == null ? "Not set" : <>{String(row.durationMinutes)} <small>min</small></>}</span> },
+];
 
 export function StudioOverview({ list = false }: { list?: boolean }) {
   const query = useExamData<Exam[]>("/api/exams?pageSize=100", { enabled: !list, refreshMs: 30_000 });
@@ -26,7 +35,7 @@ export function StudioOverview({ list = false }: { list?: boolean }) {
   const exams = query.data ?? [];
   const filtered = exams.filter((exam) => (stage === "ALL" || exam.state === stage) && exam.title.toLowerCase().includes(search.trim().toLowerCase()));
   const stageName = (value: string) => value.charAt(0) + value.slice(1).toLowerCase();
-  if (list) return <ResourcePanel title="Examinations" path="/api/exams" columns={[examLink, ...columns(["Status", "state"], ["Duration", "durationMinutes"])]}
+  if (list) return <ResourcePanel title="Examinations" path="/api/exams" columns={examListColumns}
     filters={[searchFilter, { name: "status", label: "Status", options: states }]} empty="No exams match these filters."
     toolbar={<Link className="button button-primary exam-create-button" to="/studio/exams/new">Create exam</Link>} />;
   return <div className="studio-dashboard">

@@ -111,7 +111,7 @@ export function ResourcePanel({ title, path, columns, empty, filters, actions, r
   useLiveUpdates(stream, () => void query.refetch());
   const rows = Array.isArray(query.data) ? query.data : query.data?.items;
   return <section className={`exam-record resource-panel${title === "Examinations" ? " resource-panel-exams" : ""}`}>
-    {title === "Examinations" && <header className="resource-heading"><div><p className="eyebrow">EXAMINER WORKSPACE</p><h2>Examinations</h2><p>Review exam status or create a new examination.</p></div>{toolbar && <div className="exam-actions">{toolbar}</div>}</header>}
+    {title === "Examinations" && <header className="resource-heading"><div><p className="eyebrow">EXAMINER WORKSPACE</p><h2>Examinations</h2><p>Find an exam, check its delivery status, or continue managing its setup.</p></div>{toolbar && <div className="exam-actions">{toolbar}</div>}</header>}
     {title !== "Examinations" && toolbar && <div className="exam-actions">{toolbar}</div>}
     {!!filters?.length && <form className="account-card exam-filters resource-filters" onSubmit={(event) => {
       event.preventDefault();
@@ -121,7 +121,7 @@ export function ResourcePanel({ title, path, columns, empty, filters, actions, r
     }}>
       {filters.map((field) => <label key={field.name}>{field.label}{field.options ?
         <select name={field.name}><option value="">All</option>{field.options.map((option) => <option key={option}>{option}</option>)}</select> :
-        <input type={field.type ?? "search"} name={field.name} />}</label>)}
+        <input type={field.type ?? "search"} name={field.name} placeholder={title === "Examinations" && field.name === "q" ? "Search by examination name…" : undefined} />}</label>)}
       <div className="resource-filter-actions"><button className="button button-primary">Apply filters</button>
       <button className="button" type="reset" onClick={() => setSearch("")}>Clear</button></div>
     </form>}
