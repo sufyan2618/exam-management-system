@@ -1,77 +1,54 @@
 import jwt from "jsonwebtoken";
-import type { Response } from "express";
-import type { SignOptions } from "jsonwebtoken";
+import type { Request, Response } from "express";
 import { env } from "../config/env";
+import type { Role } from "../config/constants";
 
-export interface BaseTokenPayload {
-  userId: string;
-  email: string;
-}
-
-export interface JwtPayload extends BaseTokenPayload {
-  tokenType: "access" | "refresh";
-  exp?: number;
-}
-
-export interface AccessTokenPayload extends BaseTokenPayload {
+export interface AccessTokenPayload {
+  sub: string;
+  role: Role;
+  sid: string;
+  ver: number;
   tokenType: "access";
+  iat?: number;
   exp?: number;
 }
 
-export interface RefreshTokenPayload extends BaseTokenPayload {
-  tokenType: "refresh";
-  exp?: number;
+export function signAccessToken(input: { userId: string; role: Role; sessionId: string; tokenVersion: number }) {
+  return jwt.sign(
+    { sub: input.userId, role: input.role, sid: input.sessionId, ver: input.tokenVersion, tokenType: "access" },
+    env.JWT_SECRET,
+    { algorithm: "HS256", expiresIn: env.ACCESS_TOKEN_TTL_SECONDS },
+  );
 }
 
-export function signAccessToken(payload: BaseTokenPayload) {
-  return jwt.sign({ ...payload, tokenType: "access" }, env.JWT_SECRET, {
-    expiresIn: env.ACCESS_TOKEN_EXPIRES_IN as SignOptions["expiresIn"],
-  });
+export function verifyAccessToken(token: string): AccessTokenPayload {
+  const decoded = jwt.verify(token, env.JWT_SECRET, { algorithms: ["HS256"] }) as AccessTokenPayload;
+  if (decoded.tokenType !== "access") throw new Error("Invalid token type");
+  return decoded;
 }
 
-export function signRefreshToken(payload: BaseTokenPayload) {
-  return jwt.sign({ ...payload, tokenType: "refresh" }, env.JWT_SECRET, {
-    expiresIn: env.REFRESH_TOKEN_EXPIRES_IN as SignOptions["expiresIn"],
-  });
-}
+export const REFRESH_COOKIE = "refreshToken";
+const COOKIE_PATH = "/api/v1/auth";
 
-export function verifyAccessToken(token: string) {
-  const decoded = jwt.verify(token, env.JWT_SECRET) as JwtPayload;
-  if (decoded.tokenType !== "access") {
-    throw new Error("Invalid access token");
-  }
-  return decoded as AccessTokenPayload;
-}
-
-export function verifyRefreshToken(token: string) {
-  const decoded = jwt.verify(token, env.JWT_SECRET) as JwtPayload;
-  if (decoded.tokenType !== "refresh") {
-    throw new Error("Invalid refresh token");
-  }
-  return decoded as RefreshTokenPayload;
-}
-
-export function getTokenExpiryDate(token: string) {
-  const decoded = jwt.decode(token) as { exp?: number } | null;
-  if (!decoded?.exp) {
-    throw new Error("Token expiry not found");
-  }
-  return new Date(decoded.exp * 1000);
-}
-
-export function setRefreshTokenCookie(res: Response, refreshToken: string) {
-  res.cookie("refreshToken", refreshToken, {
+export function setRefreshTokenCookie(res: Response, token: string) {
+  res.cookie(REFRESH_COOKIE, token, {
     httpOnly: true,
-    secure: env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 1000 * 60 * 60 * 24 * 7,
+    secure: env.COOKIE_SECURE,
+    sameSite: "strict",
+    path: COOKIE_PATH,
+    domain: env.COOKIE_DOMAIN,
+    maxAge: env.REFRESH_TTL_DAYS * 24 * 60 * 60 * 1000,
   });
 }
 
 export function clearAuthCookie(res: Response) {
-  res.clearCookie("refreshToken", {
+  res.clearCookie(REFRESH_COOKIE, {
     httpOnly: true,
-    secure: env.NODE_ENV === "production",
-    sameSite: "lax",
+    secure: env.COOKIE_SECURE,
+    sameSite: "strict",
+    path: COOKIE_PATH,
+    domain: env.COOKIE_DOMAIN,
   });
 }
+
+export const getRefreshCookie = (req: Request): string | undefined => req.cookies?.[REFRESH_COOKIE];

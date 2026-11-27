@@ -1,50 +1,53 @@
-import cookieParser from "cookie-parser";
-import cors from "cors";
-import express from "express";
-import helmet from "helmet";
-import morgan from "morgan";
+import { createApp, state } from "./app";
 import { env } from "./config/env";
-import { connectDatabase } from "./lib/db";
-import { logger, morganStream } from "./lib/logger";
-import { setupSwagger } from "./lib/swagger";
-import { errorHandler, notFoundHandler } from "./middlewares/error.middleware";
-import { authRateLimiter, globalRateLimiter } from "./middlewares/rate-limit.middleware";
-import apiRouter from "./routers";
-import authRouter from "./routers/auth.router";
+import { connectDatabase, disconnectDatabase, ensureIndexes } from "./lib/db";
+import { logger } from "./lib/logger";
+import { redis } from "./lib/redis";
+import { closeAllStreams, hub } from "./lib/sse";
+import { emailQueue } from "./queues/email.queue";
+import { jobsQueue } from "./queues/jobs.queue";
 
-const app = express();
-
-app.set("trust proxy", 1);
-
-app.use(
-  cors({
-    origin: env.CLIENT_URL,
-    credentials: true,
-  }),
-);
-app.use(helmet());
-app.use(express.json());
-app.use(cookieParser());
-app.use(globalRateLimiter);
-
-app.use(
-  morgan("combined", {
-    stream: morganStream,
-  }),
-);
-
-app.use("/api", apiRouter);
-app.use("/api/auth", authRateLimiter, authRouter);
-setupSwagger(app);
-
-app.use(notFoundHandler);
-app.use(errorHandler);
+// Register all models before index creation.
+import "./models/user.model";
+import "./models/question.model";
+import "./models/exam.model";
+import "./models/attempt.model";
+import "./models/result.model";
+import "./models/dispute.model";
+import "./models/system.model";
 
 async function bootstrap() {
   await connectDatabase();
-  app.listen(env.PORT, () => {
-    logger.info(`Server running on http://localhost:${env.PORT}`);
+  if (!env.IS_PROD) await ensureIndexes();
+  const app = createApp();
+  const server = app.listen(env.PORT, () => {
+    logger.info(`Server running on http://localhost:${env.PORT} (docs: /api/docs)`);
   });
+  server.keepAliveTimeout = 65_000;
+
+  let closing = false;
+  const shutdown = async (signal: string) => {
+    if (closing) return;
+    closing = true;
+    logger.info(`${signal} received: draining`);
+    state.shuttingDown = true;
+    closeAllStreams();
+    const force = setTimeout(() => {
+      logger.error("Forced shutdown after 30s");
+      process.exit(1);
+    }, 30_000);
+    force.unref();
+    server.close(async () => {
+      await hub.close();
+      await Promise.allSettled([jobsQueue.close(), emailQueue.close()]);
+      redis.disconnect();
+      await disconnectDatabase();
+      logger.info("Shutdown complete");
+      process.exit(0);
+    });
+  };
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
 }
 
 bootstrap().catch((error) => {

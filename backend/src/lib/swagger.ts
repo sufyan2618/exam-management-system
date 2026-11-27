@@ -1,52 +1,64 @@
 import type { Express } from "express";
 import swaggerUi from "swagger-ui-express";
+import { zodToJsonSchema } from "zod-to-json-schema";
+import type { ZodTypeAny } from "zod";
+import { routeRegistry } from "./router";
 
-const swaggerDocument = {
-  openapi: "3.0.0",
-  info: {
-    title: "Auth Starter API",
-    version: "1.0.0",
-  },
-  servers: [{ url: "/" }],
-  paths: {
-    "/api/health": {
-      get: {
-        summary: "Health check",
-        responses: {
-          "200": { description: "OK" },
-        },
+function toSchema(schema: ZodTypeAny) {
+  const json = zodToJsonSchema(schema, { target: "openApi3", $refStrategy: "none" }) as Record<string, unknown>;
+  delete json.$schema;
+  return json;
+}
+
+export function buildOpenApiDocument() {
+  const paths: Record<string, Record<string, unknown>> = {};
+  for (const { method, path, tag, spec } of routeRegistry) {
+    const oaPath = "/api/v1" + path.replace(/\\:/g, ":").replace(/:([A-Za-z]+)(?=\/|$)/g, "{$1}");
+    const params = [...path.matchAll(/\/:([A-Za-z]+)/g)].map((m) => ({ name: m[1], in: "path", required: true, schema: { type: "string" } }));
+    if (spec.query) {
+      const q = toSchema(spec.query) as { properties?: Record<string, unknown>; required?: string[] };
+      for (const [name, schema] of Object.entries(q.properties ?? {})) {
+        params.push({ name, in: "query", required: q.required?.includes(name) ?? false, schema } as never);
+      }
+    }
+    const op: Record<string, unknown> = {
+      tags: [tag],
+      summary: spec.summary,
+      description: spec.access === "public" ? "Public" : spec.access === "any" ? "Any authenticated role" : `Roles: ${spec.access.join(", ")}`,
+      parameters: params,
+      responses: {
+        "200": { description: "Success: `{ data, meta? }`" },
+        "401": { description: "Unauthenticated" },
+        "403": { description: "Forbidden" },
+        "404": { description: "Not found" },
+        "422": { description: "Validation failed" },
+        "429": { description: "Rate limited" },
       },
+    };
+    if (spec.access !== "public") op.security = [{ bearerAuth: [] }];
+    if (spec.body) op.requestBody = { required: true, content: { "application/json": { schema: toSchema(spec.body) } } };
+    if (spec.idempotent) (op.parameters as unknown[]).push({ name: "Idempotency-Key", in: "header", required: false, schema: { type: "string", format: "uuid" } });
+    (paths[oaPath] ??= {})[method] = op;
+  }
+  return {
+    openapi: "3.0.3",
+    info: {
+      title: "Secure Examination Management System API",
+      version: "1.0.0",
+      description:
+        "Success envelope `{data, meta?}`; errors `{error:{code,message,details,requestId,retryable}}`. Server time is authoritative for every timed endpoint.",
     },
-    "/api/auth/register": {
-      post: { summary: "Register user", responses: { "201": { description: "Created" } } },
-    },
-    "/api/auth/verify-otp": {
-      post: { summary: "Verify OTP", responses: { "200": { description: "OK" } } },
-    },
-    "/api/auth/resend-otp": {
-      post: { summary: "Resend OTP", responses: { "200": { description: "OK" } } },
-    },
-    "/api/auth/login": {
-      post: { summary: "Login user", responses: { "200": { description: "OK" } } },
-    },
-    "/api/auth/refresh-token": {
-      post: { summary: "Refresh access token", responses: { "200": { description: "OK" } } },
-    },
-    "/api/auth/logout": {
-      post: { summary: "Logout user", responses: { "200": { description: "OK" } } },
-    },
-    "/api/auth/profile": {
-      get: { summary: "Get profile", responses: { "200": { description: "OK" } } },
-    },
-    "/api/auth/reset-password": {
-      post: { summary: "Request reset password", responses: { "200": { description: "OK" } } },
-    },
-    "/api/auth/update-password": {
-      post: { summary: "Update password", responses: { "200": { description: "OK" } } },
-    },
-  },
-};
+    servers: [{ url: "/" }],
+    components: { securitySchemes: { bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT" } } },
+    paths,
+  };
+}
 
 export function setupSwagger(app: Express) {
-  app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+  let doc: ReturnType<typeof buildOpenApiDocument> | undefined;
+  const getDoc = () => (doc ??= buildOpenApiDocument());
+  app.get("/api/docs.json", (_req, res) => {
+    res.json(getDoc());
+  });
+  app.use("/api/docs", swaggerUi.serve, (req: import("express").Request, res: import("express").Response, next: import("express").NextFunction) => swaggerUi.setup(getDoc())(req, res, next));
 }
