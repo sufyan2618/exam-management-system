@@ -309,15 +309,6 @@ export function QuestionBank() {
   </div>;
 }
 
-function QuestionEditorDialog({ onClose, onSave }: { mode: "create" | "edit" | "duplicate"; question?: Record<string, unknown>; onClose: () => void; onSave: () => void }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => { dialog.current?.showModal(); }, []);
-  return <dialog ref={dialog} className="question-editor-dialog" aria-label="Create question" onClose={onClose}>
-    <button className="question-editor-dismiss" type="button" onClick={() => dialog.current?.close()}>Close</button>
-    <QuestionEditor onSave={onSave} />
-  </dialog>;
-}
-
 function QuestionEditor({ onSave }: { onSave: () => void }) {
   const [kind, setKind] = useState("MCQ_SINGLE");
   const [options, setOptions] = useState([{ id: newOperationKey(), text: "", isCorrect: false }, { id: newOperationKey(), text: "", isCorrect: false }]);

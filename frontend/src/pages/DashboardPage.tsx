@@ -9,7 +9,6 @@ import { useProfile } from "../hooks/useProfile";
 import { useAuthStore } from "../store/auth.store";
 import { clearAttemptQueues } from "../store/attempt-runtime";
 import { roleHome, workspaces } from "./workspace-routes";
-import { RailIcon } from "./Workspaces";
 import { Logo } from "../components/Brand";
 import { getErrorMessage } from "../utils/api-error";
 
