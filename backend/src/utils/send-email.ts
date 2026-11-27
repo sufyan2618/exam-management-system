@@ -1,34 +1,27 @@
 import { env } from "../config/env";
-import { buildOtpEmailTemplate } from "../templates/email-templates";
-import { HttpError } from "./errors";
+import { logger } from "../lib/logger";
+import { maskEmail } from "../lib/sanitize";
+import { renderEmail, type EmailTemplate } from "../templates/email-templates";
 
-interface SendOtpEmailInput {
-  to: string;
-  subject: string;
-  otp: string;
-  purpose: "verify_email" | "reset_password";
-}
+/**
+ * Sends via Brevo when configured; otherwise (local dev / no billing account) logs the
+ * message to the console so flows stay testable without any paid service.
+ */
+export async function sendTemplatedEmail(to: string, tpl: EmailTemplate) {
+  const { subject, html, text } = renderEmail(tpl);
 
-export async function sendOtpEmail(input: SendOtpEmailInput) {
+  if (!env.BREVO_API_KEY || !env.EMAIL_FROM) {
+    logger.info(`[email:console] to=${maskEmail(to)} subject="${subject}"`);
+    if (!env.IS_PROD) console.log(`\n--- EMAIL (console transport) ---\nTo: ${to}\nSubject: ${subject}\n${text}\n---------------------------------\n`);
+    return;
+  }
+
   const response = await fetch("https://api.brevo.com/v3/smtp/email", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "api-key": env.BREVO_API_KEY,
-    },
-    body: JSON.stringify({
-      sender: { email: env.EMAIL_FROM },
-      to: [{ email: input.to }],
-      subject: input.subject,
-      htmlContent: buildOtpEmailTemplate({
-        otp: input.otp,
-        purpose: input.purpose,
-      }),
-    }),
+    headers: { "Content-Type": "application/json", "api-key": env.BREVO_API_KEY },
+    body: JSON.stringify({ sender: { email: env.EMAIL_FROM }, to: [{ email: to }], subject, htmlContent: html, textContent: text }),
   });
-
   if (!response.ok) {
-    const body = await response.text();
-    throw new HttpError(500, `Failed to send email: ${body}`);
+    throw new Error(`Failed to send email (${response.status}): ${(await response.text()).slice(0, 200)}`);
   }
 }

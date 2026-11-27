@@ -1,342 +1,108 @@
-# API Documentation (Frontend Handover)
+# API Documentation — Secure Examination Management System
 
-Base URL: `http://localhost:5000`
+Base URL (local): `http://localhost:5000`  
+API prefix: `/api/v1`  
+Interactive docs: `GET /api/docs` · OpenAPI JSON: `GET /api/docs.json`
 
-Auth Base Path: `/api/auth`
-
-All responses are JSON.
-
-## Common Response Format
+## Envelopes
 
 Success:
 ```json
-{
-  "success": true,
-  "message": "Optional message",
-  "data": {}
-}
+{ "data": {}, "meta": { "page": 1, "pageSize": 20, "total": 0 } }
 ```
 
 Error:
 ```json
 {
-  "success": false,
-  "message": "Human readable error message"
-}
-```
-
-## Authentication Details
-
-- Login returns an `accessToken` in response body.
-- Login also sets an HTTP-only cookie named `refreshToken`.
-- Protected APIs require:
-  - `Authorization: Bearer <accessToken>`
-- Token refresh uses:
-  - Cookie (`refreshToken`) via `POST /api/auth/refresh-token`
-- Use `credentials: "include"` for login/refresh/logout calls.
-
-## User Shape
-
-Returned user object:
-```json
-{
-  "id": "string",
-  "firstName": "string",
-  "lastName": "string",
-  "email": "user@example.com",
-  "isVerified": true,
-  "isBlocked": false,
-  "createdAt": "ISO date string",
-  "updatedAt": "ISO date string"
-}
-```
-
-## Validation Rules
-
-### Password Rule
-- Minimum 6 characters
-- At least 1 uppercase letter
-- At least 1 lowercase letter
-- At least 1 number
-- At least 1 special character from: `@$!%*?&`
-
-### OTP Rule
-- Exactly 6 characters (string)
-
-### Purpose Field
-- Allowed values: `verify_email` or `reset_password`
-
-## Endpoints
-
-### 1) Register
-`POST /api/auth/register`
-
-Request body:
-```json
-{
-  "firstName": "John",
-  "lastName": "Doe",
-  "email": "john@example.com",
-  "password": "Abc@123"
-}
-```
-
-Success (`201`):
-```json
-{
-  "success": true,
-  "message": "Registered successfully. OTP sent to email.",
-  "data": {
-    "id": "USER_ID",
-    "firstName": "John",
-    "lastName": "Doe",
-    "email": "john@example.com",
-    "isVerified": false,
-    "isBlocked": false,
-    "createdAt": "2026-01-01T00:00:00.000Z",
-    "updatedAt": "2026-01-01T00:00:00.000Z"
+  "error": {
+    "code": "VALIDATION_FAILED",
+    "message": "Human readable message",
+    "details": [{ "field": "body.email", "issue": "Invalid email address" }],
+    "requestId": "uuid",
+    "retryable": false
   }
 }
 ```
 
-Common errors:
-- `409` User already exists
-- `400` Validation errors
-- `429` Email limit reached. Please try again later.
+Timed endpoints always include server clock fields (`serverTime`, `deadlineAt`, `remainingSeconds`). The client countdown must be derived from those — never from the device clock alone.
 
----
+## Auth
 
-### 2) Verify OTP
-`POST /api/auth/verify-otp`
+| Method | Path | Access | Notes |
+|---|---|---|---|
+| POST | `/auth/login` | public | argon2id; lockout after 5 fails / 15 min; returns access JWT |
+| POST | `/auth/refresh` | public | refresh cookie at `/api/v1/auth`, requires `X-Requested-With` |
+| POST | `/auth/logout` | public | CSRF header + cookie |
+| POST | `/auth/forgot-password` | public | always 200 |
+| POST | `/auth/reset-password` | public | |
+| POST | `/auth/change-password` | any | allowed when `mustChangePassword` |
+| GET | `/auth/me` | any | |
 
-Request body:
-```json
-{
-  "email": "john@example.com",
-  "otp": "123456",
-  "purpose": "verify_email"
-}
-```
+Access JWT claims: `sub`, `role`, `sid`, `ver` (tokenVersion). Refresh tokens are opaque, stored hashed, rotated; reuse of a family revokes the family.
 
-Success (`200`):
-```json
-{
-  "success": true,
-  "message": "OTP verified successfully"
-}
-```
+Roles: `ADMIN`, `EXAMINER`, `CANDIDATE`. Foreign resources return **404** (not 403) so existence is not leaked.
 
-Common errors:
-- `404` User not found
-- `400` No OTP found / OTP purpose mismatch / Invalid OTP / OTP expired
+## Users (admin)
 
----
+`GET/POST /users`, `GET/PATCH /users/:id`, activate/deactivate, admin password reset, audit log listing.
 
-### 3) Resend OTP
-`POST /api/auth/resend-otp`
+## Question bank
 
-Request body:
-```json
-{
-  "email": "john@example.com",
-  "purpose": "verify_email"
-}
-```
+Categories CRUD under `/categories`. Questions under `/questions` with versioning (edit of a used question forks a new version), sanitised Markdown stems, option validation, archive/duplicate, and `GET /questions/:id/analytics`.
 
-Success (`200`):
-```json
-{
-  "success": true,
-  "message": "OTP sent successfully"
-}
-```
+## Exams
 
-Common errors:
-- `404` User not found
-- `429` Email limit reached. Please try again later.
+| Method | Path | Notes |
+|---|---|---|
+| POST/GET/PATCH/DELETE | `/exams`, `/exams/:id` | If-Match optimistic lock |
+| PUT | `/exams/:id/questions` | ordered list + optional blueprint |
+| POST | `/exams/:id/questions/auto-select` | quota pick from bank |
+| GET | `/exams/:id/preview` | readiness checklist |
+| POST | `/exams/:id/publish\|unpublish\|close\|archive` | atomic status transitions |
+| * | `/exams/:id/enrollments` | enroll / accommodations / withdraw |
+| * | `/exams/:id/announcements` | SSE + heartbeat delivery |
 
----
+Exam `status` in responses is **computed** from the stored base state plus `startsAt`/`endsAt`/`closedAt`.
 
-### 4) Login
-`POST /api/auth/login`
+## Candidate delivery
 
-Request body:
-```json
-{
-  "email": "john@example.com",
-  "password": "Abc@123"
-}
-```
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/me/exams`, `/me/exams/:examId` | available / upcoming / completed + access decision |
+| POST | `/exams/:examId/attempts` | start or resume (idempotent) |
+| GET | `/attempts/:id` | questions **without** keys / explanations / rubrics |
+| PUT | `/attempts/:id/answers/:aqId` | autosave (`clientSeq`, rate-limited) |
+| PUT | `/attempts/:id/answers:batch` | offline flush |
+| POST | `/attempts/:id/flags\|heartbeat\|events\|submit\|notice-ack` | |
+| GET/PUT | `/attempts/:id/scratchpad` | ≤ 100 KB, last-write-wins |
+| GET | `/attempts/:id/stream` | SSE: announcements, time warnings (10/5/1), status |
+| GET/PUT | `/me/preferences` | allow-listed workspace prefs |
+| POST/DELETE | `/exams/:examId/sandbox/attempts` | examiner preview (isolated) |
 
-Success (`200`):
-```json
-{
-  "success": true,
-  "message": "Login successful",
-  "accessToken": "ACCESS_TOKEN",
-  "data": {
-    "id": "USER_ID",
-    "firstName": "John",
-    "lastName": "Doe",
-    "email": "john@example.com",
-    "isVerified": true,
-    "isBlocked": false,
-    "createdAt": "2026-01-01T00:00:00.000Z",
-    "updatedAt": "2026-01-01T00:00:00.000Z"
-  }
-} 
-```
+Header `X-Session-Epoch` makes older sessions read-only after a resume on another device.
 
-Common errors:
-- `401` Invalid credentials
-- `403` Please verify your email first
-- `403` Account blocked due to too many failed attempts
+## Monitoring
 
----
+`/exams/:id/monitor/summary|attempts|stream`, `/attempts/:id/monitor`, extend-time, force-submit, integrity-event review, interruption credit, `/me/notifications`.
 
-### 5) Refresh Access Token
-`POST /api/auth/refresh-token`
+Integrity payloads always include: *"Indicators for human review — not evidence of misconduct."*
 
-No body required.
+## Grading & results
 
-Requires refresh token cookie.
+Written queue (blind by default), grade with 0.25 steps + revision history, regrade, key overrides (`ACCEPT_ALL_ANSWERS` / `ALTERNATE_KEY` / `VOID_QUESTION`), moderation offset, publish/unpublish results, `/me/results`, `/me/results/:attemptId`.
 
-Success (`200`):
-```json
-{
-  "success": true,
-  "message": "Access token refreshed successfully",
-  "accessToken": "NEW_ACCESS_TOKEN"
-}
-```
+## Analytics & reports
 
-Common errors:
-- `401` Refresh token not found / Invalid refresh token / Refresh token mismatch / Refresh token expired
-- `404` User not found
+Exam / question / candidate analytics (60 s Redis cache). PDF reports with QR + SHA-256 footer. CSV export (formula-injection safe). Public `GET /verify/:code` (masked name only).
 
----
+## Imports
 
-### 6) Logout
-`POST /api/auth/logout`
+`POST /imports/candidates|questions` (multipart, dry-run default, atomic flag, 5 000-row cap), commit, `errors.csv`, one-time `credentials.csv` (Redis GETDEL), CSV templates.
 
-Requires refresh token cookie (if available).
+## Disputes & fairness
 
-Success (`200`):
-```json
-{
-  "success": true,
-  "message": "Logged out successfully"
-}
-```
+Candidates: file within window (max 3 open), comment, withdraw. Examiners: review, escalate, resolve (four-eyes when re-scoring own grading), countersign. `GET /exams/:id/fairness` for paper difficulty cohort stats.
 
-Common errors:
-- none (safe logout behavior)
+## Health
 
----
-
-### 7) Profile (Protected)
-`GET /api/auth/profile`
-
-Headers (if not using cookie):
-```http
-Authorization: Bearer <accessToken>
-```
-
-Success (`200`):
-```json
-{
-  "success": true,
-  "data": {
-    "id": "USER_ID",
-    "firstName": "John",
-    "lastName": "Doe",
-    "email": "john@example.com",
-    "isVerified": true,
-    "isBlocked": false,
-    "createdAt": "2026-01-01T00:00:00.000Z",
-    "updatedAt": "2026-01-01T00:00:00.000Z"
-  }
-}
-```
-
-Common errors:
-- `401` Unauthorized / Invalid token
-- `404` User not found
-
----
-
-### 8) Reset Password (Send OTP)
-`POST /api/auth/reset-password`
-
-Request body:
-```json
-{
-  "email": "john@example.com"
-}
-```
-
-Success (`200`):
-```json
-{
-  "success": true,
-  "message": "Password reset OTP sent"
-}
-```
-
-Common errors:
-- `404` User not found
-- `429` Email limit reached. Please try again later.
-
----
-
-### 9) Update Password
-`POST /api/auth/update-password`
-
-Request body:
-```json
-{
-  "email": "john@example.com",
-  "otp": "123456",
-  "newPassword": "New@123"
-}
-```
-
-Success (`200`):
-```json
-{
-  "success": true,
-  "message": "Password updated successfully"
-}
-```
-
-Common errors:
-- `404` User not found
-- `400` No reset OTP found / Invalid OTP / OTP expired
-- `400` Validation errors (new password rule)
-
-## Health Endpoint
-
-`GET /api/health`
-
-Success (`200`):
-```json
-{
-  "success": true,
-  "message": "Server is healthy"
-}
-```
-
-## Rate Limits
-
-- Global: `100 requests / minute / IP`
-- Auth routes: `10 requests / minute / IP`
-- Email sending related actions: `5 emails / 30 minutes / user`
-
-## Frontend Integration Notes
-
-- Recommended to centralize API error handling on `message`.
-- For cookie-based auth, set:
-  - `withCredentials: true` (Axios), or
-  - `credentials: "include"` (fetch)
-- On app start, call `/api/auth/refresh-token` (with credentials) to get a fresh access token.
-- Send `Authorization: Bearer <accessToken>` for protected routes.
+`GET /api/v1/health/live` · `GET /api/v1/health/ready` (Mongo + Redis + queue).

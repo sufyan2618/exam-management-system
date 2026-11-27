@@ -10,14 +10,19 @@ x-backend: &backend
   environment:
     NODE_ENV: ${NODE_ENV:-production}
     PORT: 5000
-    MONGO_URI: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongodb:27017/${MONGO_DB}?authSource=admin
+    # Replica set is required for multi-document transactions.
+    MONGO_URI: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongodb:27017/${MONGO_DB}?authSource=admin&replicaSet=rs0&directConnection=true
     REDIS_URL: redis://redis:6379
     CLIENT_URL: ${CLIENT_URL}
     JWT_SECRET: ${JWT_SECRET}
-    ACCESS_TOKEN_EXPIRES_IN: ${ACCESS_TOKEN_EXPIRES_IN:-15m}
-    REFRESH_TOKEN_EXPIRES_IN: ${REFRESH_TOKEN_EXPIRES_IN:-7d}
-    EMAIL_FROM: ${EMAIL_FROM}
-    BREVO_API_KEY: ${BREVO_API_KEY}
+    ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-900}
+    REFRESH_TTL_DAYS: ${REFRESH_TTL_DAYS:-7}
+    EMAIL_FROM: ${EMAIL_FROM:-}
+    BREVO_API_KEY: ${BREVO_API_KEY:-}
+    REPORT_HMAC_SECRET: ${REPORT_HMAC_SECRET:-}
+    INSTITUTION_NAME: ${INSTITUTION_NAME:-Secure Exam Platform}
+    GRACE_SECONDS: ${GRACE_SECONDS:-5}
+    ALLOW_DEMO_SEED: ${ALLOW_DEMO_SEED:-false}
   restart: unless-stopped
   networks:
     - app
@@ -31,18 +36,33 @@ services:
   mongodb:
     image: mongo:7
     restart: unless-stopped
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
       MONGO_INITDB_DATABASE: ${MONGO_DB}
     volumes:
       - mongo_data:/data/db
+      - ./docker/mongo-rs-init.js:/docker-entrypoint-initdb.d/01-rs.js:ro
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--username", "${MONGO_USER}", "--password", "${MONGO_PASSWORD}", "--authenticationDatabase", "admin", "--eval", "db.adminCommand('ping').ok"]
+      test:
+        [
+          "CMD",
+          "mongosh",
+          "--quiet",
+          "--username",
+          "${MONGO_USER}",
+          "--password",
+          "${MONGO_PASSWORD}",
+          "--authenticationDatabase",
+          "admin",
+          "--eval",
+          "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0', members:[{_id:0, host:'mongodb:27017'}]}).ok }",
+        ]
       interval: 10s
-      timeout: 5s
-      retries: 8
-      start_period: 20s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
     networks:
       - app
     logging:
@@ -80,23 +100,27 @@ services:
         condition: service_healthy
     volumes:
       - backend_logs:/app/logs
+      - backend_uploads:/app/data/uploads
     healthcheck:
-      test: ["CMD", "bun", "-e", "const res = await fetch('http://127.0.0.1:5000/api/health'); if (!res.ok) process.exit(1)"]
+      test: ["CMD", "bun", "-e", "const r=await fetch('http://127.0.0.1:5000/api/v1/health/live'); if(!r.ok) process.exit(1)"]
       interval: 15s
       timeout: 5s
       retries: 8
-      start_period: 20s
+      start_period: 25s
 
   worker:
     <<: *backend
-    command: ["bun", "src/workers/email.worker.ts"]
+    command: ["bun", "src/workers/jobs.worker.ts"]
     depends_on:
+      mongodb:
+        condition: service_healthy
       redis:
         condition: service_healthy
       backend:
         condition: service_healthy
     volumes:
       - worker_logs:/app/logs
+      - backend_uploads:/app/data/uploads
 
   frontend:
     build:
@@ -136,7 +160,7 @@ services:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/api/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/api/v1/health/live"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -158,3 +182,4 @@ volumes:
   redis_data:
   backend_logs:
   worker_logs:
+  backend_uploads:

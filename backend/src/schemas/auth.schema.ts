@@ -1,72 +1,15 @@
 import { z } from "zod";
+import { passwordSchema } from "../utils/password";
+import { email } from "../utils/validators";
 
-const passwordSchema = z
-  .string()
-  .min(6, "Password must be at least 6 characters")
-  .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
-  .regex(/[a-z]/, "Password must contain at least one lowercase letter")
-  .regex(/[0-9]/, "Password must contain at least one number")
-  .regex(/[@$!%*?&]/, "Password must contain at least one special character (@$!%*?&)");
+export const loginBody = z.object({ email, password: z.string().min(1).max(128) }).strict();
+export const changePasswordBody = z
+  .object({ currentPassword: z.string().min(1).max(128), newPassword: passwordSchema })
+  .strict()
+  .refine((v) => v.currentPassword !== v.newPassword, { message: "New password must differ from the current password", path: ["newPassword"] });
+export const forgotPasswordBody = z.object({ email }).strict();
+export const resetPasswordBody = z.object({ token: z.string().min(20).max(200), newPassword: passwordSchema }).strict();
 
-export const registerSchema = z.object({
-  body: z.object({
-    firstName: z.string().min(1),
-    lastName: z.string().min(1),
-    email: z.string().email(),
-    password: passwordSchema,
-  }),
-  params: z.object({}).default({}),
-  query: z.object({}).default({}),
-});
-
-export const verifyOtpSchema = z.object({
-  body: z.object({
-    email: z.string().email(),
-    otp: z.string().length(6),
-    purpose: z.enum(["verify_email", "reset_password"]).default("verify_email"),
-  }),
-  params: z.object({}).default({}),
-  query: z.object({}).default({}),
-});
-
-export const resendOtpSchema = z.object({
-  body: z.object({
-    email: z.string().email(),
-    purpose: z.enum(["verify_email", "reset_password"]).default("verify_email"),
-  }),
-  params: z.object({}).default({}),
-  query: z.object({}).default({}),
-});
-
-export const loginSchema = z.object({
-  body: z.object({
-    email: z.string().email(),
-    password: z.string().min(1),
-  }),
-  params: z.object({}).default({}),
-  query: z.object({}).default({}),
-});
-
-export const refreshTokenSchema = z.object({
-  body: z.object({}).default({}),
-  params: z.object({}).default({}),
-  query: z.object({}).default({}),
-});
-
-export const resetPasswordSchema = z.object({
-  body: z.object({
-    email: z.string().email(),
-  }),
-  params: z.object({}).default({}),
-  query: z.object({}).default({}),
-});
-
-export const updatePasswordSchema = z.object({
-  body: z.object({
-    email: z.string().email(),
-    otp: z.string().length(6),
-    newPassword: passwordSchema,
-  }),
-  params: z.object({}).default({}),
-  query: z.object({}).default({}),
-});
+export type LoginInput = z.infer<typeof loginBody>;
+export type ChangePasswordInput = z.infer<typeof changePasswordBody>;
+export type ResetPasswordInput = z.infer<typeof resetPasswordBody>;
