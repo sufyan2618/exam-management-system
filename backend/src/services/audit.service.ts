@@ -4,6 +4,7 @@ import { logger } from "../lib/logger";
 import { withLock } from "../lib/redis";
 import { pageMeta, pageParams, paginationQuery } from "../lib/pagination";
 import { AuditLog } from "../models/system.model";
+import { User } from "../models/user.model";
 import { z } from "zod";
 import { objectId } from "../utils/validators";
 
@@ -104,5 +105,8 @@ export async function listAuditLogs(query: z.infer<typeof auditQuery>) {
     AuditLog.find(filter).sort({ seq: -1 }).skip(p.skip).limit(p.pageSize).lean(),
     AuditLog.countDocuments(filter),
   ]);
-  return { rows, meta: pageMeta(p, total) };
+  const actorIds = [...new Set(rows.flatMap((row) => row.actorId ? [String(row.actorId)] : []))];
+  const actors = actorIds.length ? await User.find({ _id: { $in: actorIds } }).select("fullName role").lean() : [];
+  const actorById = new Map(actors.map((actor) => [String(actor._id), actor]));
+  return { rows: rows.map((row) => ({ ...row, actorName: row.actorId ? actorById.get(String(row.actorId))?.fullName ?? null : null })), meta: pageMeta(p, total) };
 }

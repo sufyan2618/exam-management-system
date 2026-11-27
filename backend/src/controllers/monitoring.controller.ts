@@ -27,6 +27,7 @@ export async function notifications(req: Request, res: Response) {
   send(res, rows, { meta });
 }
 export const readNotification = async (req: Request, res: Response) => send(res, await notif.markRead(req.user!.userId, id(req)));
+export const readAllNotifications = async (req: Request, res: Response) => send(res, await notif.markAllRead(req.user!.userId));
 
 export async function stream(req: Request, res: Response) {
   const examId = id(req);

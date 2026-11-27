@@ -14,16 +14,40 @@ const columns = (...entries: [string, string][]) => entries.map(([label, key]) =
 
 export function AdminOverview() {
   const query = useExamData<{ users?: number; exams?: number; activeAttempts?: number; queuedJobs?: number; database?: string; status?: string }>("/api/admin/stats", { refreshMs: 15_000 });
-  return <>
-    <div className="exam-actions"><Link to="/admin/users">Manage users</Link><Link to="/admin/audit">View audit log</Link><Link to="/admin/system">Open system health</Link></div>
+  const database = query.data?.database ?? "Unknown";
+  const databaseState = database.toLowerCase() === "up" ? "healthy" : database.toLowerCase() === "down" ? "error" : "unknown";
+  const metrics = [
+    ["Users", query.data?.users],
+    ["Examinations", query.data?.exams],
+    ["Active attempts", query.data?.activeAttempts],
+    ["Jobs waiting", query.data?.queuedJobs],
+  ] as const;
+  return <div className="admin-overview">
+    <header className="admin-overview-heading">
+      <div><p className="eyebrow">ADMINISTRATION</p><h2>Operations at a glance</h2><p>Service health and current activity across Verity.</p></div>
+      <nav className="admin-overview-actions" aria-label="Administration shortcuts">
+        <Link to="/admin/users"><span><strong>Manage users</strong><small>Accounts and roles</small></span><span aria-hidden="true">↗</span></Link>
+        <Link to="/admin/audit"><span><strong>View audit log</strong><small>Recent system changes</small></span><span aria-hidden="true">↗</span></Link>
+        <Link to="/admin/system"><span><strong>System health</strong><small>Queues and service details</small></span><span aria-hidden="true">↗</span></Link>
+      </nav>
+    </header>
     <DataPanel pending={query.isPending} error={query.error} retry={() => void query.refetch()}>
-      {query.data && <section className="account-card exam-record">
-        <h2>Platform status</h2>
-        <dl className="exam-facts">{([["Service", query.data.status], ["Database", query.data.database], ["Users", query.data.users], ["Exams", query.data.exams], ["Active attempts", query.data.activeAttempts], ["Queued jobs", query.data.queuedJobs]] as const).map(([name, value]) =>
-          <div key={name}><dt>{name}</dt><dd>{value ?? "—"}</dd></div>)}</dl>
-      </section>}
+      {query.data && <div className="admin-overview-data">
+        <section className="admin-health-panel" aria-label="System health">
+          <div className="admin-health-heading"><div><p className="eyebrow">LIVE STATUS</p><h3>System health</h3></div><span className="admin-refresh-note">Refreshes every 15 seconds</span></div>
+          <div className="admin-health-checks">
+            <div data-state="healthy"><span className="admin-health-dot" aria-hidden="true"/><span>API service</span><strong>Responding</strong></div>
+            <div data-state={databaseState}><span className="admin-health-dot" aria-hidden="true"/><span>Database</span><strong>{database}</strong></div>
+          </div>
+        </section>
+        <section className="admin-metrics" aria-label="Platform activity">
+          {metrics.map(([label, value], index) => <article className="admin-metric" key={label}>
+            <span className="admin-metric-index">0{index + 1}</span><p>{label}</p><strong>{value ?? "—"}</strong>
+          </article>)}
+        </section>
+      </div>}
     </DataPanel>
-  </>;
+  </div>;
 }
 
 const userFields: Field[] = [
@@ -74,12 +98,22 @@ function AdminUser({ id }: { id: string }) {
 }
 
 export function AuditLog() {
+  const verification = useExamData<{ valid: boolean; checked: number; brokenAtSeq?: number }>("/api/audit-logs/verify", { refreshMs: 60_000 });
   return <ResourcePanel title="Audit events" path="/api/audit-logs" empty="No audit events match these filters."
-    filters={[{ name: "actorId", label: "Actor" }, { name: "entityType", label: "Entity" }, { name: "action", label: "Action" }, { name: "from", label: "From", type: "datetime-local" }]}
-    columns={[...columns(["Time", "createdAt"], ["Actor", "actor"], ["Action", "action"], ["Entity", "entity"], ["Chain verified", "verified"]),
-      { label: "Changes", render: (row) => <details><summary>Inspect changes</summary>
-        <h3>Before</h3><pre>{JSON.stringify(row.before ?? null, null, 2)}</pre>
-        <h3>After</h3><pre>{JSON.stringify(row.after ?? null, null, 2)}</pre></details> }]} />;
+    toolbar={<div className="audit-integrity" data-state={verification.data?.valid === false ? "error" : verification.data?.valid ? "healthy" : "unknown"}>
+      <span aria-hidden="true" className="admin-health-dot" />
+      <span>{verification.data?.valid === false ? `Chain issue at record ${verification.data.brokenAtSeq ?? "unknown"}` : verification.data?.valid ? `Chain verified · ${verification.data.checked} records checked` : "Checking audit chain…"}</span>
+      {verification.error && <button className="button" onClick={() => void verification.refetch()}>Retry check</button>}
+    </div>}
+    filters={[{ name: "actorId", label: "Actor ID" }, { name: "entityType", label: "Entity type" }, { name: "entityId", label: "Entity ID" }, { name: "action", label: "Action" }, { name: "from", label: "From", type: "datetime-local" }, { name: "to", label: "To", type: "datetime-local" }]}
+    columns={[{ label: "Time", render: (row) => { const date = new Date(String(row.createdAt ?? "")); return Number.isNaN(date.getTime()) ? "—" : <time dateTime={date.toISOString()}>{date.toLocaleString()}</time>; } },
+      { label: "Actor", render: (row) => <span className="audit-actor"><strong>{String(row.actorName ?? row.actorRole ?? "System")}</strong><small>{row.actorRole ? String(row.actorRole) : row.actorId ? String(row.actorId) : "Automated event"}</small></span> },
+      ...columns(["Action", "action"]),
+      { label: "Entity", render: (row) => <span className="audit-actor"><strong>{String(row.entityType ?? "—")}</strong><small>{String(row.entityId ?? "No entity ID")}</small></span> },
+      { label: "Record", render: (row) => <code>#{String(row.seq ?? "—")}</code> },
+      { label: "Details", render: (row) => <details className="audit-details"><summary>Inspect record</summary>
+        <div className="audit-change-grid">{(["before", "after", "meta"] as const).map((key) => <section key={key}><h3>{key === "meta" ? "Additional details" : key[0].toUpperCase() + key.slice(1)}</h3><pre>{row[key] == null ? "No details recorded" : JSON.stringify(row[key], null, 2)}</pre></section>)}</div>
+        {Boolean(row.requestId) && <small>Request {String(row.requestId)}</small>}</details> }]} />;
 }
 
 export function AdminSystem() {

@@ -28,7 +28,6 @@ const getServerVisible = () => false;
 
 export function LottiePlayer({ src, className, segment }: LottiePlayerProps) {
   const player = useRef<LottieHandle>(null);
-  const [paused, setPaused] = useState(false);
   const [failed, setFailed] = useState(false);
   const reducedMotion = useSyncExternalStore(
     subscribeToMotion, getReducedMotion, getServerReducedMotion,
@@ -36,7 +35,7 @@ export function LottiePlayer({ src, className, segment }: LottiePlayerProps) {
   const visible = useSyncExternalStore(
     subscribeToVisibility, getPageVisible, getServerVisible,
   );
-  const playing = !paused && !reducedMotion && visible;
+  const playing = !reducedMotion && visible;
 
   useEffect(() => {
     if (playing) player.current?.play();
@@ -66,23 +65,7 @@ export function LottiePlayer({ src, className, segment }: LottiePlayerProps) {
           error: () => setFailed(true),
         }}
       />
-      {failed ? (
-        <p className="animation-fallback" role="status">A little space. Endless possibility.</p>
-      ) : (
-        <button
-          className="animation-control"
-          type="button"
-          onClick={() => setPaused((current) => !current)}
-          disabled={reducedMotion}
-          aria-label={reducedMotion ? "Animation paused for reduced motion" : paused ? "Play animation" : "Pause animation"}
-          aria-pressed={paused || reducedMotion}
-        >
-          <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
-            {paused || reducedMotion ? <path d="m5 3 8 5-8 5V3Z" /> : <path d="M4 3h3v10H4zm5 0h3v10H9z" />}
-          </svg>
-          <span>{reducedMotion ? "Reduced motion" : paused ? "Play animation" : "Pause animation"}</span>
-        </button>
-      )}
+      {failed && <p className="animation-fallback" role="status">A little space. Endless possibility.</p>}
     </div>
   );
 }

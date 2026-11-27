@@ -1,0 +1,9 @@
+.git
+.env
+.env.*
+backend/.env
+**/node_modules
+frontend/dist
+backend/data
+backend/logs
+DEPLOY_EC2.md

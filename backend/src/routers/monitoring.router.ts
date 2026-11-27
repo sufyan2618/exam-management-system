@@ -23,5 +23,6 @@ r.post("/attempts/:id/interruptions/:iid/review", { summary: "Approve (credit) o
 r.get("/me/notifications/stream", {summary:"Live user notifications",access:"any"}, async(req,res)=>openSse(req,res,{userId:req.user!.userId,channels:[`user:${req.user!.userId}`],hello:[{type:"hello",data:{connected:true}}]}));
 r.get("/me/notifications", { summary: "My notifications", access: "any", query: notificationsQuery }, c.notifications);
 r.patch("/me/notifications/:id/read", { summary: "Mark a notification read", access: "any", params: idParams }, c.readNotification);
+r.patch("/me/notifications/read-all", { summary: "Mark all my notifications read", access: "any" }, c.readAllNotifications);
 
 export default r.router;
