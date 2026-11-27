@@ -285,7 +285,7 @@ function AttemptPaper({ id, path, runtimeKey, attempt, initialClock, review, san
     {integrityEnabled && <details className="account-card">
       <summary>What is being recorded?</summary>
       <p>Recorded indicators include tab visibility, fullscreen exits, clipboard actions, context menu use and reconnections. Clipboard contents are not collected.</p>
-      <p>Indicators are not conclusive evidence of misconduct. This tab has noticed {recordedSignals} signals so far; the examiner monitor refreshes as they arrive.</p>
+      <p>Indicators are not conclusive evidence of misconduct. This tab has detected {recordedSignals} signals during this attempt.</p>
     </details>}
     {!review && typeof document.documentElement.requestFullscreen === "function" &&
       <button className="button" onClick={() => { void document.documentElement.requestFullscreen().catch(() => undefined); }}>Enter fullscreen</button>}
