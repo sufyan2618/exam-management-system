@@ -130,7 +130,7 @@ export function RoleWorkspace({ workspace, screen }: { workspace: Workspace; scr
   if (!user?.role || !user.isVerified || user.isBlocked) {
     return <ScreenNotice title="Workspace access unavailable" message="Your account needs an assigned role and active access to open this workspace." back="/dashboard" backLabel="Return to account" />;
   }
-  if (user.role !== workspace.role) return <Navigate to={roleHome(user.role)} replace />;
+  if (user.role !== workspace.role) return <Navigate to="/403" replace />;
   const examHub = id && workspace.role === "EXAMINER" ? "/studio/exams/" + encodeURIComponent(id) : undefined;
   const navigation = [...workspace.screens.filter((item) => item.nav), { path: "/dashboard", title: "Account" }];
   return (

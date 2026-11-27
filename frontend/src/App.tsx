@@ -12,6 +12,7 @@ import { PasswordAction } from "./pages/PasswordActions";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { StatusPage } from "./pages/StatusPage";
 
 import { AccountPreferences, ScreenNotice, RoleWorkspace } from "./pages/Workspaces";
 import { roleHome, workspaces } from "./pages/workspace-routes";
@@ -80,6 +81,8 @@ function AppRoutes() {
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       </Route>
       <Route path="/reset-password/:token" element={<TokenReset />} />
+      <Route path="/403" element={<StatusPage code="403" title="This area is restricted" message="Your account does not have permission to open this page. If you think this is a mistake, contact your administrator." />} />
+      <Route path="/404" element={<StatusPage code="404" title="We can’t find that page" message="The address may have changed, or the page may no longer be available." primaryLabel="Go to sign in" primaryTo="/login" />} />
 
       <Route element={<ProtectedRoute />}>
         <Route path="/dashboard" element={<DashboardPage />} />
@@ -92,7 +95,7 @@ function AppRoutes() {
         )}
       </Route>
       <Route path="/" element={<Navigate to={profile.data ? roleHome(profile.data.role) : "/login"} replace />} />
-      <Route path="*" element={<ScreenNotice title="Page not found" message="Check the address or return to the start page." />} />
+      <Route path="*" element={<Navigate to="/404" replace />} />
     </Routes>
   );
 }

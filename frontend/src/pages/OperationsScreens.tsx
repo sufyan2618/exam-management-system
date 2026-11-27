@@ -12,6 +12,42 @@ import { useExamData } from "../hooks/useExamData";
 const roles = ["CANDIDATE", "EXAMINER", "ADMIN"];
 const columns = (...entries: [string, string][]) => entries.map(([label, key]) => ({ label, key }));
 
+function auditValue(value: unknown): string {
+  if (value === null) return "Empty";
+  if (value === undefined) return "Not recorded";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "object") return Array.isArray(value)
+    ? value.map((item) => auditValue(item)).join(", ")
+    : Object.entries(value as Record<string, unknown>).map(([key, item]) => `${key}: ${auditValue(item)}`).join(" · ");
+  return String(value);
+}
+
+function AuditChanges({ row }: { row: Row }) {
+  const before = row.before && typeof row.before === "object" ? row.before as Record<string, unknown> : {};
+  const after = row.after && typeof row.after === "object" ? row.after as Record<string, unknown> : {};
+  const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])]
+    .filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]));
+  const meta = row.meta && typeof row.meta === "object" ? row.meta as Record<string, unknown> : {};
+  const hasChanges = row.before != null || row.after != null;
+  return <details className="audit-details"><summary>Inspect record</summary>
+    <div className="audit-change-grid">
+      <section className="audit-diff-card"><h3>What changed</h3>
+        {changed.length ? <ul className="audit-diff-list">{changed.map((key) => <li key={key}>
+          <strong>{key.replace(/([A-Z])/g, " $1").replace(/^./, (letter) => letter.toUpperCase())}</strong>
+          <span className="audit-diff-values"><del>{auditValue(before[key])}</del><span aria-hidden="true">→</span><ins>{auditValue(after[key])}</ins></span>
+        </li>)}</ul> : <p className="audit-empty-detail">{hasChanges ? "No field changes detected." : "This event did not record before or after values."}</p>}
+      </section>
+      <section className="audit-diff-card"><h3>Additional details</h3>
+        {Object.keys(meta).length ? <dl className="audit-meta-list">{Object.entries(meta).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{auditValue(value)}</dd></div>)}</dl> : <p className="audit-empty-detail">No additional details recorded.</p>}
+      </section>
+    </div>
+    <details className="audit-raw"><summary>View raw record data</summary><div className="audit-raw-grid">
+      {(["before", "after", "meta"] as const).map((key) => row[key] != null && <section key={key}><h4>{key === "meta" ? "Additional details" : key[0].toUpperCase() + key.slice(1)}</h4><pre>{JSON.stringify(row[key], null, 2)}</pre></section>)}
+    </div></details>
+    {Boolean(row.requestId) && <small className="audit-request">Request ID <code>{String(row.requestId)}</code></small>}
+  </details>;
+}
+
 export function AdminOverview() {
   const query = useExamData<{ users?: number; exams?: number; activeAttempts?: number; queuedJobs?: number; database?: string; status?: string }>("/api/admin/stats", { refreshMs: 15_000 });
   const database = query.data?.database ?? "Unknown";
@@ -111,9 +147,7 @@ export function AuditLog() {
       ...columns(["Action", "action"]),
       { label: "Entity", render: (row) => <span className="audit-actor"><strong>{String(row.entityType ?? "—")}</strong><small>{String(row.entityId ?? "No entity ID")}</small></span> },
       { label: "Record", render: (row) => <code>#{String(row.seq ?? "—")}</code> },
-      { label: "Details", render: (row) => <details className="audit-details"><summary>Inspect record</summary>
-        <div className="audit-change-grid">{(["before", "after", "meta"] as const).map((key) => <section key={key}><h3>{key === "meta" ? "Additional details" : key[0].toUpperCase() + key.slice(1)}</h3><pre>{row[key] == null ? "No details recorded" : JSON.stringify(row[key], null, 2)}</pre></section>)}</div>
-        {Boolean(row.requestId) && <small>Request {String(row.requestId)}</small>}</details> }]} />;
+      { label: "Details", render: (row) => <AuditChanges row={row} /> }]} />;
 }
 
 export function AdminSystem() {
