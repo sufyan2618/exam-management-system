@@ -73,7 +73,7 @@ export function AccountPreferences() {
   );
 }
 
-function RailIcon({ path }: { path: string }) {
+export function RailIcon({ path }: { path: string }) {
   const stroke = {
     fill: "none",
     stroke: "currentColor",
