@@ -196,6 +196,48 @@ p, li, td, dd { text-wrap: pretty; }
 .exam-duration-value small { color: var(--muted); font-size: .75em; }
 .resource-panel-exams .exam-actions[aria-label="Record pages"] { justify-content: flex-end; align-items: center; gap: 10px; padding-top: 2px; color: var(--muted-strong); font-size: .78rem; }
 .resource-panel-exams .exam-actions[aria-label="Record pages"] > span { min-width: 62px; text-align: center; }
+.exam-candidates-workspace { display: grid; gap: 20px; min-width: 0; }
+.candidate-enroll-card, .candidate-import-card { display: grid; gap: 18px; padding: clamp(18px, 2.4vw, 26px); }
+.candidate-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.candidate-section-heading .eyebrow, .candidate-import-copy .eyebrow { margin: 0 0 6px; color: var(--brand); font-size: .64rem; font-weight: 700; letter-spacing: .12em; }
+.candidate-section-heading h2, .candidate-import-copy h2 { margin: 0; font: 500 1.45rem/1.2 var(--font-display); }
+.candidate-section-heading p:last-child, .candidate-import-copy > p:not(.eyebrow) { max-width: 65ch; margin: 6px 0 0; color: var(--muted-strong); font-size: .8rem; line-height: 1.55; }
+.candidate-enroll-card .exam-form { grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px; }
+.candidate-enroll-card .exam-form > button { min-height: 43px; margin-bottom: 1px; }
+.candidate-enroll-card .exam-form .exam-action-error { grid-column: 1 / -1; }
+.candidate-enroll-card .exam-form textarea { min-height: 88px; resize: vertical; }
+.candidate-feedback { margin: 0; color: var(--success); font-size: .78rem; font-weight: 600; }
+.candidate-feedback.is-error { color: var(--danger); }
+.candidate-import-card { grid-template-columns: minmax(220px, .85fr) minmax(280px, 1.15fr); align-items: start; }
+.candidate-import-copy { display: grid; justify-items: start; gap: 6px; }
+.candidate-import-copy .button { min-height: 37px; margin-top: 6px; font-size: .73rem; }
+.candidate-import-copy code { padding: 2px 5px; border-radius: 4px; background: var(--surface-muted); color: var(--brand); font-size: .9em; }
+.candidate-import-controls { display: grid; align-content: start; justify-items: start; gap: 11px; min-width: 0; }
+.candidate-file-field { display: grid; gap: 7px; width: 100%; color: var(--ink-800); font-size: .75rem; font-weight: 600; }
+.candidate-file-field input { width: 100%; min-width: 0; min-height: 44px; padding: 7px; border: 1px dashed var(--line-strong); border-radius: 8px; background: var(--surface-muted); color: var(--muted-strong); font: inherit; }
+.candidate-file-field input::file-selector-button { min-height: 30px; margin-right: 10px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-weight: 600; cursor: pointer; }
+.candidate-import-preview, .candidate-import-result { display: grid; gap: 4px; width: 100%; padding: 11px 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-muted); color: var(--muted-strong); font-size: .74rem; }
+.candidate-import-preview strong, .candidate-import-result strong { color: var(--ink); }
+.candidate-import-invalid { color: #805811; }
+.candidate-import-preview details { margin-top: 3px; }
+.candidate-import-preview summary { width: fit-content; cursor: pointer; font-weight: 600; }
+.candidate-import-preview ul { display: grid; gap: 3px; max-height: 120px; margin: 7px 0; padding-left: 18px; overflow: auto; }
+.candidate-import-controls > .button-primary { min-height: 42px; }
+.candidate-import-result { grid-column: 1 / -1; grid-template-columns: repeat(3, max-content); align-items: center; column-gap: 16px; background: var(--success-bg); border-color: color-mix(in srgb, var(--success) 22%, transparent); }
+.candidate-import-result strong { grid-column: 1 / -1; color: var(--success); }
+.candidate-import-result details { grid-column: 1 / -1; margin-top: 4px; }
+.candidate-import-result summary { cursor: pointer; font-weight: 600; }
+.candidate-import-result ul { display: grid; gap: 3px; max-height: 130px; margin: 8px 0 0; padding-left: 18px; overflow: auto; }
+.candidate-list-section { display: grid; gap: 14px; min-width: 0; }
+.candidate-list-section > .candidate-section-heading { padding: 2px 2px 0; }
+.candidate-list-section .resource-panel { gap: 14px; }
+.candidate-list-section .exam-table { min-width: 58rem; }
+.candidate-list-section .exam-table td { vertical-align: middle; }
+.candidate-list-section .exam-table td:first-child { font-weight: 600; }
+.candidate-list-section .exam-table td:nth-child(2) { color: var(--muted-strong); }
+.candidate-list-section .exam-table td:last-child { font-variant-numeric: tabular-nums; }
+.candidate-list-section .resource-panel > .account-card { display: grid; min-height: 170px; align-content: center; justify-items: center; padding: 26px; border-style: dashed; background: var(--surface-muted); text-align: center; }
+.candidate-list-section .resource-panel > .account-card > p { max-width: 48ch; margin: 0; color: var(--muted-strong); font-size: .82rem; line-height: 1.6; }
 .exam-wizard-heading { margin-bottom: 18px; }
 .exam-wizard-heading h1 { margin: 0; font: 500 clamp(1.8rem, 3vw, 2.45rem)/1.12 var(--font-display); }
 .exam-wizard-heading > p:last-child { max-width: 60ch; margin: 8px 0 0; color: var(--muted-strong); font-size: .85rem; }
@@ -294,6 +336,10 @@ p, li, td, dd { text-wrap: pretty; }
   .resource-panel-exams .exam-table th:nth-child(2),
   .resource-panel-exams .exam-table th:last-child { width: auto; }
   .resource-panel-exams .exam-actions[aria-label="Record pages"] { justify-content: center; }
+  .candidate-import-card { grid-template-columns: minmax(0, 1fr); }
+  .candidate-import-result { grid-template-columns: 1fr; }
+  .candidate-import-result strong, .candidate-import-result details { grid-column: 1; }
+  .candidate-list-section .exam-table { min-width: 0; }
   .question-builder-heading { align-items: flex-start; flex-direction: column; }
   .question-builder-summary { width: min(100%, 320px); justify-content: space-between; }
   .selected-question-card { grid-template-columns: minmax(0, 1fr); }
@@ -321,6 +367,10 @@ p, li, td, dd { text-wrap: pretty; }
   .resource-panel-exams .exam-table td:first-child { align-items: start; }
   .resource-panel-exams .exam-table td:first-child::before { padding-top: 2px; }
   .resource-panel-exams .exam-actions[aria-label="Record pages"] { gap: 7px; }
+  .candidate-enroll-card .exam-form { grid-template-columns: minmax(0, 1fr); }
+  .candidate-enroll-card .exam-form > button { justify-self: stretch; }
+  .candidate-list-section .exam-table { min-width: 0; }
+  .candidate-list-section .exam-table td { grid-template-columns: minmax(84px, .34fr) minmax(0, 1fr); }
   .question-builder { gap: 18px; }
   .question-builder-heading { padding-bottom: 15px; }
   .question-builder-summary { width: 100%; }

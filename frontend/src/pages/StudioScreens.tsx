@@ -204,17 +204,122 @@ function ExamQuestions({ id }: { id: string }) {
 function ExamCandidates({ id }: { id: string }) {
   const path = "/api/exams/" + segment(id) + "/enrollments";
   const [revision, setRevision] = useState(0);
+  const [selectedFile, setSelectedFile] = useState<File>();
+  const [importPreview, setImportPreview] = useState<{ emails: string[]; invalid: { row: number; value: string }[]; duplicates: number }>();
+  const [fileError, setFileError] = useState("");
+  const [importResult, setImportResult] = useState<{ enrolled: number; alreadyEnrolled: number; notFound: string[] }>();
+  const [notice, setNotice] = useState("");
+  const rosterInput = useRef<HTMLInputElement>(null);
+  const importMutation = useMutation({
+    mutationFn: () => examWrite<{ enrolled: number; alreadyEnrolled: number; notFound: string[] }>(path, "POST", { emails: importPreview?.emails ?? [] }, newOperationKey()),
+    onSuccess: (result) => {
+      if (!result) return;
+      setImportResult(result);
+      setSelectedFile(undefined);
+      setImportPreview(undefined);
+      setFileError("");
+      if (rosterInput.current) rosterInput.current.value = "";
+      setRevision((value) => value + 1);
+    },
+  });
   return <>
-    <details className="account-card"><summary>Enroll by email</summary>
-      <ActionForm action={{ label: "Enroll candidates", path, fields: [{ name: "emails", label: "Email addresses (one per line)", type: "textarea" }] }} done={() => setRevision((value) => value + 1)} />
-    </details>
-    <ResourcePanel key={revision} title="Enrolled candidates" path={path} columns={columns(["Candidate", "name"], ["Enrollment", "status"], ["Attempt", "attemptStatus"], ["Extra minutes", "extraMinutes"])} empty="No candidates enrolled."
-      toolbar={<Link to="/studio/imports">Import candidates</Link>}
+    <div className="exam-candidates-workspace">
+      <section className="account-card candidate-enroll-card">
+        <header className="candidate-section-heading"><div><p className="eyebrow">EXAM ACCESS</p><h2>Add candidates</h2><p>Enroll active candidate accounts by email or upload a CSV roster.</p></div></header>
+        <ActionForm action={{ label: "Enroll by email", path, fields: [{ name: "emails", label: "Candidate email addresses", type: "textarea" }] }} done={() => { setNotice("Candidate enrollment updated."); setRevision((value) => value + 1); }} />
+        {notice && <p className="candidate-feedback" role="status">{notice}</p>}
+      </section>
+      <section className="account-card candidate-import-card" aria-labelledby="candidate-import-title">
+        <div className="candidate-import-copy"><p className="eyebrow">BULK ENROLLMENT</p><h2 id="candidate-import-title">Import candidates</h2><p>Upload a CSV roster with an <code>email</code> column. This enrolls existing candidate accounts; it does not create new accounts.</p><button type="button" className="button button-ghost" onClick={downloadCandidateTemplate}>Download CSV template</button></div>
+        <div className="candidate-import-controls">
+          <label className="candidate-file-field">Candidate roster (CSV)<input ref={rosterInput} type="file" accept=".csv,text/csv" disabled={importMutation.isPending} onChange={async (event) => {
+            const file = event.target.files?.[0];
+            setImportResult(undefined);
+            setImportPreview(undefined);
+            setSelectedFile(file);
+            setFileError("");
+            if (!file) return;
+            if (file.size > 5 * 1024 * 1024) { setFileError("Choose a CSV file smaller than 5 MB."); setSelectedFile(undefined); event.target.value = ""; return; }
+            try {
+              const preview = parseCandidateRoster(await file.text());
+              if (!preview.emails.length) throw new Error("No valid email addresses were found. Check the email column and try again.");
+              if (preview.emails.length > 500) throw new Error("This file contains more than 500 unique email addresses. Split it into smaller files.");
+              setImportPreview(preview);
+            } catch (error) {
+              setFileError(error instanceof Error ? error.message : "We could not read this CSV. Check the file and try again.");
+              setSelectedFile(undefined);
+              event.target.value = "";
+            }
+          }} /></label>
+          {selectedFile && importPreview && <div className="candidate-import-preview" role="status"><strong>{selectedFile.name}</strong><span>{importPreview.emails.length} unique valid {importPreview.emails.length === 1 ? "email" : "emails"} ready to enroll{importPreview.duplicates ? ` · ${importPreview.duplicates} duplicate${importPreview.duplicates === 1 ? "" : "s"} skipped` : ""}</span>{!!importPreview.invalid.length && <><span className="candidate-import-invalid">{importPreview.invalid.length} row(s) have invalid or missing email addresses and will be skipped.</span><details><summary>Review skipped rows</summary><ul>{importPreview.invalid.slice(0, 100).map((item) => <li key={`${item.row}-${item.value}`}>Row {item.row}: {item.value || "email is missing"}</li>)}</ul>{importPreview.invalid.length > 100 && <span>Showing first 100 rows.</span>}</details></>}</div>}
+          {fileError && <p className="candidate-feedback is-error" role="alert">{fileError}</p>}
+          <button type="button" className="button button-primary" disabled={!selectedFile || !importPreview?.emails.length || importMutation.isPending} onClick={() => { setImportResult(undefined); importMutation.mutate(); }}>{importMutation.isPending ? "Enrolling candidates…" : "Enroll from CSV"}</button>
+          <ActionError error={importMutation.error} />
+        </div>
+        {importResult && <div className="candidate-import-result" role="status"><strong>Roster processed</strong><span>{importResult.enrolled} enrolled</span><span>{importResult.alreadyEnrolled} already enrolled</span><span>{importResult.notFound.length} not found or inactive</span>{!!importResult.notFound.length && <details><summary>Review emails that were not enrolled</summary><ul>{importResult.notFound.map((email) => <li key={email}>{email}</li>)}</ul></details>}</div>}
+      </section>
+      <section className="candidate-list-section"><header className="candidate-section-heading"><div><p className="eyebrow">ROSTER</p><h2>Enrolled candidates</h2><p>Review enrollment and attempt progress for this examination.</p></div></header>
+    <ResourcePanel key={revision} title="Enrolled candidates" path={path} columns={columns(["Candidate", "fullName"], ["Email", "email"], ["Registration", "registrationNo"], ["Enrollment", "status"], ["Attempt", "attemptStatus"], ["Extra minutes", "extraTimeMinutes"])} empty="No candidates are enrolled yet. Add candidates above by email or upload a CSV roster."
       actions={(row) => row.id ? [
         { label: "Set extra time", method: "PATCH", path: path + "/" + segment(String(row.candidateId)), fields: [{ name: "extraTimeMinutes", label: "Extra minutes", type: "number", min: 0 }, { name: "reason", label: "Reason" }] },
-        { label: "Remove enrollment", method: "DELETE", path: path + "/" + segment(String(row.candidateId)), confirm: String(row.name ?? row.id) },
+        { label: "Remove enrollment", method: "DELETE", path: path + "/" + segment(String(row.candidateId)), confirm: String(row.fullName ?? row.id) },
       ] : []} />
+      </section>
+    </div>
   </>;
+}
+
+function parseCandidateRoster(csv: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+  for (let i = 0; i < csv.length; i++) {
+    const char = csv[i]!;
+    if (quoted) {
+      if (char === '"' && csv[i + 1] === '"') { field += '"'; i++; }
+      else if (char === '"') quoted = false;
+      else field += char;
+    } else if (char === '"' && field.length === 0) quoted = true;
+    else if (char === ",") { row.push(field.trim()); field = ""; }
+    else if (char === "\n" || char === "\r") {
+      if (char === "\r" && csv[i + 1] === "\n") i++;
+      row.push(field.trim());
+      if (row.some((cell) => cell !== "")) rows.push(row);
+      row = []; field = "";
+    } else field += char;
+  }
+  if (quoted) throw new Error("A quoted value is not closed. Check the CSV formatting and try again.");
+  row.push(field.trim());
+  if (row.some((cell) => cell !== "")) rows.push(row);
+  if (!rows.length) throw new Error("The CSV file is empty.");
+  const normalizeHeader = (value: string) => value.replace(/^\uFEFF/, "").toLowerCase().replace(/[\s_-]+/g, "");
+  const headerIndex = rows[0]!.findIndex((cell) => ["email", "emailaddress"].includes(normalizeHeader(cell)));
+  const hasHeader = headerIndex >= 0;
+  const emailIndex = hasHeader ? headerIndex : 0;
+  const emails: string[] = [];
+  const invalid: { row: number; value: string }[] = [];
+  const seen = new Set<string>();
+  let duplicates = 0;
+  rows.slice(hasHeader ? 1 : 0).forEach((cells, index) => {
+    const value = String(cells[emailIndex] ?? "").trim();
+    if (!/^[^\s@,]+@[^\s@,]+\.[^\s@,.]+$/.test(value)) { invalid.push({ row: index + (hasHeader ? 2 : 1), value }); return; }
+    const normalized = value.toLowerCase();
+    if (seen.has(normalized)) { duplicates++; return; }
+    seen.add(normalized);
+    emails.push(normalized);
+  });
+  return { emails, invalid, duplicates };
+}
+
+function downloadCandidateTemplate() {
+  const blob = new Blob(["email,fullName,registrationNo\ncandidate@example.edu,Alex Morgan,STU-2026-001\n"], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "candidate-roster-template.csv";
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function AnnouncementPanel({ id, state }: { id: string; state?: Exam["state"] }) {
