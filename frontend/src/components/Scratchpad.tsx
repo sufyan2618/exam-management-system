@@ -7,7 +7,7 @@ import { examGet, examWrite } from "../api/examination";
 import { ActionError } from "./ExamData";
 
 type Point = [number, number];
-export type Stroke = { width: number; erase: boolean; points: Point[] };
+export type Stroke = { width: number; erase: boolean; color?: string; points: Point[] };
 const WIDTH = 480;
 const HEIGHT = 320;
 const LIMIT = 100_000;
@@ -23,9 +23,11 @@ export function Scratchpad({ path, disabled, initialNotes, initialSketch }: {
   const [sketch, setSketch] = useState<Stroke[]>(initialSketch ?? []);
   const [redo, setRedo] = useState<Stroke[]>([]);
   const [width, setWidth] = useState(3);
+  const [color, setColor] = useState("#7c2947");
   const [erase, setErase] = useState(false);
   const [flushed, setFlushed] = useState(() => JSON.stringify({ notes: initialNotes ?? "", sketch: initialSketch ?? [] }));
   const canvas = useRef<HTMLCanvasElement>(null);
+  const notesInput = useRef<HTMLTextAreaElement>(null);
   const stroke = useRef<Stroke | null>(null);
   const data = JSON.stringify({ notes, sketch });
   const bytes = new TextEncoder().encode(data).length;
@@ -56,7 +58,7 @@ export function Scratchpad({ path, disabled, initialNotes, initialSketch }: {
       context.lineCap = "round";
       context.lineJoin = "round";
       context.lineWidth = current.width;
-      context.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--ink").trim() || "#191a2e";
+      context.strokeStyle = current.color ?? (getComputedStyle(document.documentElement).getPropertyValue("--ink").trim() || "#191a2e");
       context.globalCompositeOperation = current.erase ? "destination-out" : "source-over";
       const [start, ...rest] = current.points;
       context.moveTo(...start);
@@ -74,17 +76,39 @@ export function Scratchpad({ path, disabled, initialNotes, initialSketch }: {
     return [Math.round((event.clientX - rect.left) * WIDTH / rect.width), Math.round((event.clientY - rect.top) * HEIGHT / rect.height)];
   }
 
+  function insertNotesText(value: string) {
+    const input = notesInput.current;
+    const start = input?.selectionStart ?? notes.length;
+    const end = input?.selectionEnd ?? notes.length;
+    const updated = notes.slice(0, start) + value + notes.slice(end);
+    setNotes(updated);
+    requestAnimationFrame(() => {
+      input?.focus();
+      input?.setSelectionRange(start + value.length, start + value.length);
+    });
+  }
+
   return <section className="account-card exam-record exam-scratchpad">
-    <h2>Scratchpad</h2><p>Notes and sketches are not graded.</p>
-    <div className="exam-tabs" role="group" aria-label="Scratchpad view">
-      <button aria-pressed={tab === "notes"} onClick={() => setTab("notes")}>Notes</button>
-      <button aria-pressed={tab === "sketch"} onClick={() => setTab("sketch")}>Sketch</button>
-    </div>
-    {tab === "notes" ? <div className="exam-form"><textarea aria-label="Scratchpad notes" maxLength={25_000} disabled={disabled} value={notes} onChange={(event) => setNotes(event.target.value)} /></div> :
+    <header className="scratchpad-heading"><div><p className="eyebrow">PRIVATE TO THIS ATTEMPT</p><h2>Scratchpad</h2><p>Work through ideas here. Your notes and sketches are not graded.</p></div>
+      <div className="exam-tabs" role="group" aria-label="Scratchpad view">
+        <button aria-pressed={tab === "notes"} onClick={() => setTab("notes")}>Notes</button>
+        <button aria-pressed={tab === "sketch"} onClick={() => setTab("sketch")}>Sketch</button>
+      </div>
+    </header>
+    {tab === "notes" ? <div className="scratchpad-notes">
+      <div className="scratchpad-toolbar" aria-label="Note tools">
+        <button className="button" type="button" disabled={disabled} onClick={() => insertNotesText("• ")}>＋ Bullet</button>
+        <button className="button" type="button" disabled={disabled} onClick={() => insertNotesText("\n\nWorking:\n\nAnswer: ")}>＋ Working template</button>
+        <button className="button scratchpad-clear" type="button" disabled={disabled || !notes} onClick={() => setNotes("")}>Clear notes</button>
+      </div>
+      <textarea ref={notesInput} aria-label="Scratchpad notes" placeholder="Write a note, work through a calculation, or outline an answer…" maxLength={25_000} disabled={disabled} value={notes} onChange={(event) => setNotes(event.target.value)} />
+      <div className="scratchpad-note-meta"><span>{notes.trim() ? notes.trim().split(/\s+/).length : 0} words</span><span>{notes.length.toLocaleString()} / 25,000 characters</span></div>
+    </div> :
       <>
-        <div className="exam-actions">
+        <div className="scratchpad-toolbar" aria-label="Sketch tools">
+          <label className="scratchpad-setting">Ink <select aria-label="Sketch color" disabled={disabled || erase} value={color} onChange={(event) => setColor(event.target.value)}><option value="#7c2947">Wine</option><option value="#244f75">Blue</option><option value="#397052">Green</option><option value="#211c24">Charcoal</option></select></label>
+          <label className="scratchpad-setting">Brush <select aria-label="Brush size" disabled={disabled} value={width} onChange={(event) => setWidth(Number(event.target.value))}><option value={1}>Fine</option><option value={3}>Medium</option><option value={8}>Wide</option></select></label>
           <button className="button" disabled={disabled} aria-pressed={erase} onClick={() => setErase(!erase)}>{erase ? "Eraser on" : "Eraser off"}</button>
-          <label>Size <select disabled={disabled} value={width} onChange={(event) => setWidth(Number(event.target.value))}><option value={1}>Fine</option><option value={3}>Medium</option><option value={8}>Wide</option></select></label>
           <button className="button" disabled={disabled || !sketch.length} onClick={() => {
             const last = sketch.at(-1);
             if (last) { setRedo([...redo, last]); setSketch(sketch.slice(0, -1)); }
@@ -93,12 +117,13 @@ export function Scratchpad({ path, disabled, initialNotes, initialSketch }: {
             const last = redo.at(-1);
             if (last) { setSketch([...sketch, last]); setRedo(redo.slice(0, -1)); }
           }}>Redo</button>
+          <button className="button scratchpad-clear" disabled={disabled || !sketch.length} onClick={() => { setRedo([...redo, ...sketch]); setSketch([]); }}>Clear sketch</button>
         </div>
-        <canvas ref={canvas} width={WIDTH} height={HEIGHT} className="scratch-canvas" aria-label="Scratchpad drawing area"
+        <canvas ref={canvas} width={WIDTH} height={HEIGHT} className="scratch-canvas" aria-label="Scratchpad drawing area. Use a pointer or touch to draw."
           onPointerDown={(event) => {
             if (disabled || bytes > LIMIT || !event.isPrimary) return;
             event.currentTarget.setPointerCapture(event.pointerId);
-            stroke.current = { width, erase, points: [point(event)] };
+            stroke.current = { width, erase, color, points: [point(event)] };
             draw([...sketch, stroke.current]);
           }}
           onPointerMove={(event) => {
@@ -114,10 +139,11 @@ export function Scratchpad({ path, disabled, initialNotes, initialSketch }: {
           }}
           onPointerCancel={() => { stroke.current = null; draw(sketch); }} />
       </>}
-    <small>{Math.round(bytes / 1000)} / 100 KB</small>
+    <footer className="scratchpad-footer"><div className="scratchpad-save-state"><span className={`scratchpad-save-dot${save.isError ? " is-error" : data === flushed ? " is-saved" : ""}`} aria-hidden="true" />
+      <span role="status">{save.isPending ? "Saving your work…" : save.isError ? "Could not save yet. Retry when you’re ready." : data === flushed ? "All changes saved" : "Changes will save automatically"}</span>
+      <small>{Math.ceil(bytes / 1000)} / 100 KB</small></div>
     {bytes > LIMIT && <p role="alert">Remove notes or strokes before saving.</p>}
-    <p role="status">{save.isPending ? "Saving scratchpad…" : data === flushed ? "Scratchpad saved" : "Scratchpad changes pending"}</p>
     <ActionError error={save.error} />
-    <button className="button" disabled={disabled || data === flushed || bytes > LIMIT || save.isPending} onClick={() => save.mutate(data)}>Save scratchpad</button>
+    <button className="button button-primary" disabled={disabled || data === flushed || bytes > LIMIT || save.isPending} onClick={() => save.mutate(data)}>Save now</button></footer>
   </section>;
 }

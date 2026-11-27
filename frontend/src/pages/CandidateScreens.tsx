@@ -10,6 +10,7 @@ import { ActionError, DataPanel, DataTable } from "../components/ExamData";
 import { useDownload } from "../hooks/useDownload";
 import { useExamData } from "../hooks/useExamData";
 import { useAuthStore } from "../store/auth.store";
+import { Brand } from "../components/Brand";
 
 export function CandidateDashboard() {
   const [bucket, setBucket] = useState("available");
@@ -130,6 +131,7 @@ export function CandidateResults({ id }: { id?: string }) {
 export function CandidateDisputes({ id, attempt }: { id?: string; attempt?: string }) {
   const navigate = useNavigate();
   const [reason, setReason] = useState("");
+  const [disputeErrors, setDisputeErrors] = useState<{ reason?: string; question?: string }>({});
   const [type, setType] = useState("TECHNICAL_INCIDENT");
   const [confirm, setConfirm] = useState(false);
   const [questionId,setQuestionId] = useState("");
@@ -149,15 +151,23 @@ export function CandidateDisputes({ id, attempt }: { id?: string; attempt?: stri
   });
   const dispute = Array.isArray(query.data) ? undefined : query.data;
   return <>
-    {attempt && !id && <form className="account-card exam-record exam-form" onSubmit={(event) => { event.preventDefault(); if (reason.trim().length >= 20) change.mutate(); }}>
+    {attempt && !id && <form className="account-card exam-record exam-form" noValidate onSubmit={(event) => {
+      event.preventDefault();
+      const errors = {
+        ...(reason.trim().length < 20 ? { reason: "Explain the issue in at least 20 characters." } : {}),
+        ...(type !== "TECHNICAL_INCIDENT" && !questionId ? { question: "Choose the question this dispute is about." } : {}),
+      };
+      setDisputeErrors(errors);
+      if (!Object.keys(errors).length) change.mutate();
+    }}>
       <h2>File a dispute</h2>
       <label>Dispute type<select value={type} onChange={(event) => setType(event.target.value)}>
         <option value="TECHNICAL_INCIDENT">Technical incident</option><option value="GRADING_ERROR">Grading error</option><option value="AMBIGUOUS_QUESTION">Ambiguous question</option>
       </select></label>
-      {type !== "TECHNICAL_INCIDENT" && <label>Question<select required value={questionId} onChange={e=>setQuestionId(e.target.value)}><option value="">Select question</option>{result.data?.questions.map(q=><option key={q.attemptQuestionId} value={q.attemptQuestionId}>Question {q.position+1}: {q.stem.slice(0,80)}</option>)}</select></label>}
-      <label>Reason<textarea required minLength={20} maxLength={2000} value={reason} onChange={(event) => setReason(event.target.value)} /></label>
+      {type !== "TECHNICAL_INCIDENT" && <label>Question<select required aria-invalid={!!disputeErrors.question} value={questionId} onChange={e=>{setQuestionId(e.target.value); setDisputeErrors((current) => ({...current, question: undefined}));}}><option value="">Select question</option>{result.data?.questions.map(q=><option key={q.attemptQuestionId} value={q.attemptQuestionId}>Question {q.position+1}: {q.stem.slice(0,80)}</option>)}</select>{disputeErrors.question && <span className="exam-field-error">{disputeErrors.question}</span>}</label>}
+      <label>Reason<textarea required minLength={20} maxLength={2000} aria-invalid={!!disputeErrors.reason} aria-describedby={disputeErrors.reason ? "dispute-reason-error" : undefined} value={reason} onChange={(event) => {setReason(event.target.value); setDisputeErrors((current) => ({...current, reason: undefined}));}} />{disputeErrors.reason && <span id="dispute-reason-error" className="exam-field-error">{disputeErrors.reason}</span>}</label>
       <small>{reason.length} / 2,000 characters</small>
-      <button className="button button-primary" disabled={reason.trim().length < 20 || change.isPending}>Submit dispute</button>
+      <button className="button button-primary" disabled={change.isPending}>Submit dispute</button>
       <ActionError error={change.error} />
     </form>}
     <DataPanel pending={query.isPending} error={query.error} retry={() => void query.refetch()}
@@ -181,18 +191,60 @@ export function CandidateDisputes({ id, attempt }: { id?: string; attempt?: stri
 export function VerifyResult({ code }: { code: string }) {
   const query = useExamData<Verification>("/api/verify/" + segment(code), { auth: false });
   const data = query.data;
-  return <main className="account-page" id="main-content">
-    <h1>Verify a result</h1>
-    <DataPanel pending={query.isPending} error={query.error} retry={() => void query.refetch()}>
-      {data && <section className="account-card exam-record">
-        {data.status === "VALID" ? <>
-          <span className="exam-stamp">Valid</span><h2>{data.examTitle}</h2>
-          <p>{data.institution}</p><p>Candidate: {data.maskedName ?? "—"}</p>
-          <p>Issued {formatDate(data.issuedAt)}{data.percentage != null ? " · " + data.percentage + "%" : ""}</p>
-        </> : data.status === "SUPERSEDED" && data.replacementCode ? <>
-          <h2>This result has been replaced</h2><Link to={"/verify/" + segment(data.replacementCode)}>Check the current result</Link>
-        </> : <p>This result could not be verified.</p>}
-      </section>}
-    </DataPanel>
+  const [actionMessage, setActionMessage] = useState("");
+  const isValid = data?.valid ?? data?.status === "VALID";
+  const score = data && data.percentage != null ? Math.min(100, Math.max(0, data.percentage)) : undefined;
+  async function copyValue(value: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setActionMessage(`${label} copied to clipboard.`);
+    } catch {
+      setActionMessage("Clipboard access is unavailable in this browser. You can copy the address from the browser bar.");
+    }
+  }
+  return <main className="public-verify-page" id="main-content">
+    <div className="public-verify-shell">
+      <header className="public-verify-topbar"><Brand /><span>PUBLIC CREDENTIAL CHECK</span></header>
+      <div className="public-verify-intro"><p className="eyebrow">VERITY · SECURE EXAMINATION</p><h1>Verify a result</h1><p>Confirm that an examination result was issued by Verity and check its current status.</p></div>
+      <DataPanel pending={query.isPending} error={query.error} retry={() => void query.refetch()}>
+        {data && <section className={`public-verify-card${isValid ? " is-valid" : " is-invalid"}`} aria-labelledby="verify-record-title">
+          <div className="verify-card-status">
+            <span className={`verify-status-pill${isValid ? " is-valid" : data.status === "SUPERSEDED" ? " is-replaced" : " is-invalid"}`}>
+              <span aria-hidden="true">{isValid ? "✓" : data.status === "SUPERSEDED" ? "↻" : "!"}</span>
+              {isValid ? "Authentic result" : data.status === "SUPERSEDED" ? "Replaced result" : data.status === "REVOKED" ? "Revoked result" : "Not verified"}
+            </span>
+            <span className="verify-check-caption">{isValid ? "Record signature matched" : "Please review the status below"}</span>
+          </div>
+          {isValid ? <>
+            <div className="verify-result-grid">
+              <div className="verify-score-panel">
+                <p className="verify-label">FINAL RESULT</p>
+                <h2 id="verify-record-title">{data.examTitle ?? "Verified examination"}</h2>
+                {score != null ? <div className="verify-score-display"><div className="verify-score-ring" role="img" aria-label={`Final score: ${score}%`} style={{ background: `conic-gradient(var(--success) ${score}%, var(--line) ${score}% 100%)` }}><span>{score}<small>%</small></span></div><p>Final score</p></div> : <p className="verify-score-unavailable">Score details were not included in this verification record.</p>}
+              </div>
+              <div className="verify-record-details"><p className="verify-label">ISSUED RECORD</p><h3>Examination details</h3>
+                <dl>
+                  {data.institution && <div><dt>Issuing institution</dt><dd>{data.institution}</dd></div>}
+                  <div><dt>Candidate</dt><dd>{data.maskedName ?? "Identity withheld"}<small>Candidate identity is partially masked for privacy.</small></dd></div>
+                  <div><dt>Date issued</dt><dd>{data.issuedAt ? <time dateTime={data.issuedAt}>{formatDate(data.issuedAt)}</time> : "Not provided"}</dd></div>
+                  <div><dt>Verification reference</dt><dd className="verify-reference">{code.toUpperCase()}</dd></div>
+                </dl>
+              </div>
+            </div>
+            <div className="verify-authenticity-note"><span aria-hidden="true">✓</span><p><strong>This result is currently valid.</strong> The reference matches an issued record and its integrity check passed.</p></div>
+          </> : <div className="verify-exception">
+            <h2 id="verify-record-title">{data.status === "SUPERSEDED" ? "A newer result has been issued" : data.status === "REVOKED" ? "This result is no longer valid" : "No matching result found"}</h2>
+            <p>{data.status === "SUPERSEDED" ? "This reference belongs to an earlier result. Use the current reference below to verify the latest issued record." : data.status === "REVOKED" ? "The issuing institution has revoked this result. Do not use it as proof of a current qualification." : "We could not find an issued result matching this reference. Check the code and try again, or contact the issuing institution."}</p>
+            {data.status === "SUPERSEDED" && data.replacementCode && <Link className="button button-primary" to={"/verify/" + segment(data.replacementCode)}>Verify the current result <span aria-hidden="true">→</span></Link>}
+            <div className="verify-old-reference"><span>Checked reference</span><code>{code.toUpperCase()}</code></div>
+          </div>}
+          <footer className="verify-card-footer"><div><strong>Verity Secure Examination</strong><span>Public result verification</span></div>
+            <div className="verify-actions"><button className="button" onClick={() => void copyValue(window.location.href, "Verification link")}>Copy verification link</button><button className="button" onClick={() => void copyValue(code.toUpperCase(), "Reference code")}>Copy reference</button><button className="button" onClick={() => window.print()}>Print result</button></div>
+            <p className="verify-action-message" role="status" aria-live="polite">{actionMessage}</p>
+          </footer>
+        </section>}
+      </DataPanel>
+      <p className="public-verify-help">Only limited candidate information is shown on this public page. For questions about a result, contact the institution listed on the record.</p>
+    </div>
   </main>;
 }

@@ -61,7 +61,7 @@ export const epochFrom = (header: string | undefined) => {
 
 /** Explicit allow-list: never includes isCorrect, explanation, rubric or optionId. */
 export async function toCandidateAttemptDto(attempt: AttemptLean, now: Date) {
-  const exam = await Exam.findById(attempt.examId).select("title instructions durationMinutes integrityLevel negativeMarking multiSelectScheme").lean();
+  const exam = await Exam.findById(attempt.examId).select("title instructions durationMinutes integrityLevel negativeMarking multiSelectScheme announcementSeq").lean();
   const base = {
     id: String(attempt._id),
     examId: String(attempt.examId),
@@ -80,13 +80,15 @@ export async function toCandidateAttemptDto(attempt: AttemptLean, now: Date) {
     markingRules: { negativeMarking: attempt.markingSnapshot.negativeMarking, multiSelectScheme: attempt.markingSnapshot.multiSelectScheme },
     integrityNotice: exam && exam.integrityLevel !== "OFF" ? { text: INTEGRITY_NOTICE, acknowledgedAt: attempt.noticeAckAt ?? null } : null,
     graceSeconds: env.GRACE_SECONDS,
+    announcementCursor: exam?.announcementSeq ?? 0,
   };
   if (attempt.status !== "IN_PROGRESS") {
     return { ...base, submittedAt: attempt.submittedAt ?? null, submitReason: attempt.submitReason ?? null, ...(attempt.isSandbox ? { totalScore: attempt.totalScore } : {}) };
   }
-  const [aqs, answers] = await Promise.all([
+  const [aqs, answers, announcements] = await Promise.all([
     AttemptQuestion.find({ attemptId: attempt._id }).sort({ position: 1 }).select("position type stem marks maxWords section options._id options.label options.text").lean(),
     Answer.find({ attemptId: attempt._id }).select("attemptQuestionId selectedOptionIds textAnswer isMarkedForReview clientSeq savedAt").lean(),
+    Announcement.find({ examId: attempt.examId }).sort({ seq: -1 }).limit(50).lean(),
   ]);
   return {
     ...base,
@@ -108,6 +110,7 @@ export async function toCandidateAttemptDto(attempt: AttemptLean, now: Date) {
       clientSeq: a.clientSeq,
       savedAt: a.savedAt ?? null,
     })),
+    announcements: announcements.reverse().map(toAnnouncementDto),
   };
 }
 
@@ -360,7 +363,8 @@ export async function heartbeat(user: AuthUser, attemptId: string, input: { curs
     status = (await loadOwnAttempt(user, attemptId)).status;
   }
   const fresh = await Attempt.findById(attemptId).select("sessionEpoch creditedSeconds").lean();
-  const announcements = input.cursor !== undefined ? (await Announcement.find({ examId: attempt.examId, seq: { $gt: input.cursor } }).sort({ seq: 1 }).limit(50).lean()).map(toAnnouncementDto) : [];
+  const announcementRows = input.cursor !== undefined ? await Announcement.find({ examId: attempt.examId, seq: { $gt: input.cursor } }).sort({ seq: 1 }).limit(50).lean() : [];
+  const announcements = announcementRows.map(toAnnouncementDto);
   const exam = await Exam.findById(attempt.examId).select("announcementSeq").lean();
   return {
     active: active || false,
@@ -371,7 +375,7 @@ export async function heartbeat(user: AuthUser, attemptId: string, input: { curs
     sessionEpoch: fresh?.sessionEpoch ?? attempt.sessionEpoch,
     creditedSeconds: fresh?.creditedSeconds ?? 0,
     announcements,
-    announcementCursor: exam?.announcementSeq ?? 0,
+    announcementCursor: announcementRows.at(-1)?.seq ?? input.cursor ?? 0,
   };
 }
 

@@ -117,11 +117,25 @@ export function RailIcon({ path }: { path: string }) {
   }
 }
 
+function workspaceBackTarget(screenPath: string, params: { id?: string; examId?: string; attemptId?: string }) {
+  if (screenPath === "/app/exams/:examId") return { to: "/app", label: "Back to examinations" };
+  if (screenPath === "/app/results/:attemptId") return { to: "/app/results", label: "Back to results" };
+  if (screenPath === "/app/disputes/:id") return { to: "/app/disputes", label: "Back to disputes" };
+  if (screenPath === "/app/attempt/:attemptId/review" && params.attemptId) return { to: "/app/attempt/" + encodeURIComponent(params.attemptId), label: "Back to exam" };
+  if (screenPath === "/studio/exams/new") return { to: "/studio/exams", label: "Back to exams" };
+  if (screenPath === "/studio/exams/:id" || screenPath === "/studio/exams/:id/sandbox" || screenPath.startsWith("/studio/exams/:id/") && params.id) {
+    return params.id ? { to: "/studio/exams/" + encodeURIComponent(params.id), label: screenPath === "/studio/exams/:id" ? "Back to exams" : "Back to exam overview" } : undefined;
+  }
+  if (screenPath === "/admin/users/:id") return { to: "/admin/users", label: "Back to users" };
+  return undefined;
+}
+
 export function RoleWorkspace({ workspace, screen }: { workspace: Workspace; screen: Screen }) {
   const user = useAuthStore((state) => state.user);
-  const { id } = useParams();
+  const { id, examId, attemptId } = useParams();
   const location = useLocation();
   const home = roleHome(workspace.role);
+  const backTarget = workspaceBackTarget(screen.path, { id, examId, attemptId });
   useEffect(() => {
     if (user?.role !== workspace.role) return;
     document.getElementById("workspace-title")?.focus();
@@ -154,7 +168,10 @@ export function RoleWorkspace({ workspace, screen }: { workspace: Workspace; scr
       )}
       <main className="product-main" id="main-content">
         <header className="workspace-top">
-          <h1 id="workspace-title" tabIndex={-1}>{screen.title}</h1>
+          <div className="workspace-heading">
+            {backTarget && <Link className="workspace-back" to={backTarget.to}><span aria-hidden="true">←</span>{backTarget.label}</Link>}
+            <h1 id="workspace-title" tabIndex={-1}>{screen.title}</h1>
+          </div>
           {!screen.exam && <WorkspaceTools workspace={workspace} />}
         </header>
         <div className="workspace-content">

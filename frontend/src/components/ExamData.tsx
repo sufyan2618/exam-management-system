@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ApiError, getErrorMessage } from "../utils/api-error";
+import { ApiError, getApiValidationIssues, getErrorMessage } from "../utils/api-error";
 
 export function DataPanel({ pending, error, retry, empty, children }: {
   pending: boolean;
@@ -40,6 +40,11 @@ export function DataTable({ label, columns, rows }: {
   </div>;
 }
 
-export function ActionError({ error }: { error: unknown }) {
-  return error != null ? <p role="alert" className="exam-action-error">{getErrorMessage(error)}</p> : null;
+export function ActionError({ error, fields = [] }: { error: unknown; fields?: { name: string; label: string }[] }) {
+  if (error == null) return null;
+  const issues = getApiValidationIssues(error).map((issue) => {
+    const label = fields.find((candidate) => candidate.name === issue.field)?.label ?? issue.label;
+    return `${label}: ${issue.message}`;
+  });
+  return <div role="alert" className="exam-action-error"><strong>{issues.length ? "Please correct the following:" : getErrorMessage(error)}</strong>{issues.length > 0 && <ul>{issues.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul>}{error instanceof ApiError && error.requestId && <small>Reference: {error.requestId}</small>}</div>;
 }

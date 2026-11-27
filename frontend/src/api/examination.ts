@@ -33,7 +33,8 @@ export type ExamResult = {
   sections?: { title: string; score: number; totalMarks: number; feedback?: string }[];
 };
 export type Verification = {
-  status: "VALID" | "SUPERSEDED" | "REVOKED" | "NOT_FOUND";
+  valid?: boolean;
+  status: "VALID" | "SUPERSEDED" | "REVOKED" | "UNKNOWN" | "NOT_FOUND";
   examTitle?: string;
   institution?: string;
   issuedAt?: string;
@@ -58,13 +59,13 @@ export async function examGet<T>(path: string, signal?: AbortSignal, auth = true
   }
   return adapt(result.data) as T;
 }
-export async function examWrite<T>(path: string, method: "POST" | "PUT" | "PATCH" | "DELETE", body?: unknown, idempotencyKey?: string, version?: number) {
+export async function examWrite<T>(path: string, method: "POST" | "PUT" | "PATCH" | "DELETE", body?: unknown, idempotencyKey?: string, version?: number, options: { keepalive?: boolean } = {}) {
   let sessionEpoch: number | undefined;
   if (body && typeof body === "object" && "sessionEpoch" in body) {
     const {sessionEpoch: epoch, ...rest} = body as Record<string, unknown>;
     sessionEpoch = typeof epoch === "number" ? epoch : undefined; body = rest;
   }
-  const result = await apiRequest<Envelope<T> | null>(path, { method, body, idempotencyKey, sessionEpoch, version });
+  const result = await apiRequest<Envelope<T> | null>(path, { method, body, idempotencyKey, sessionEpoch, version, ...options });
   return adapt(result?.data) as T | undefined;
 }
 export function display(value: unknown) {
@@ -96,7 +97,8 @@ function adapt(value: unknown): unknown {
   if (r.readiness) return {...r, canPublish:r.readiness.ready, checks:(r.readiness.checklist ?? []).map((check: {key:string;status:string;message:string}) => ({id:check.key,label:check.message,passed:check.status === "PASS"}))};
   return { ...r, attemptId: r.attemptId ?? r.attempt?.id, id: r.id ?? r._id ?? r.examId ?? r.answerId ?? r.attemptId ?? r.questionId,
     title: r.title ?? r.type, read: r.readAt != null, message: r.message ?? r.payload?.message,
-    validCount: r.validRows, invalidCount: r.errorRows, canCommit: r.status === "PREVIEW",
+    validCount: r.validRows, invalidCount: r.errorRows, appliedCount: r.appliedRows, totalRows: r.totalRows,
+    atomic: r.atomic, failureReason: r.failureReason, canCommit: r.status === "PREVIEW",
     errors: Array.isArray(r.errors) ? r.errors.map((e: {reason?:string;message?:string}) => ({...e,message:e.message ?? e.reason})) : r.errors,
     question: r.stem, answer: r.textAnswer, candidateName: r.fullName ?? r.candidate?.fullName ?? r.candidate?.alias,
     distribution:r.distribution?.map((b:{from:number;to:number;count:number})=>({...b,range:`${b.from}–${b.to}%`})), correctRate:r.pValue,skipRate:r.omitRate,

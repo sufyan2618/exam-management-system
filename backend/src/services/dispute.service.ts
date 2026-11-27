@@ -107,7 +107,9 @@ export async function createDispute(user: AuthUser, attemptId: string, input: In
 
 export async function listMyDisputes(user: AuthUser) {
   const rows = await Dispute.find({ candidateId: user.userId }).sort({ createdAt: -1 }).limit(100).lean();
-  return rows.map(toDisputeDto);
+  const exams = rows.length ? await Exam.find({ _id: { $in: [...new Set(rows.map((row) => row.examId))] } }).select("title").lean() : [];
+  const examTitles = new Map(exams.map((exam) => [String(exam._id), exam.title]));
+  return rows.map((row) => ({ ...toDisputeDto(row), examTitle: examTitles.get(String(row.examId)) ?? "Examination unavailable" }));
 }
 
 export async function withdrawDispute(user: AuthUser, id: string) {
@@ -125,7 +127,7 @@ export async function withdrawDispute(user: AuthUser, id: string) {
 // ---- shared -----------------------------------------------------------------------------------------------
 
 export async function getDispute(user: AuthUser, id: string) {
-  const { dispute } = await loadDispute(user, id);
+  const { dispute, exam } = await loadDispute(user, id);
   const events = await DisputeEvent.find({ disputeId: id }).sort({ createdAt: 1 }).lean();
   const [aq, answer, candidate] = await Promise.all([
     dispute.attemptQuestionId ? AttemptQuestion.findById(dispute.attemptQuestionId).select("position stem marks type").lean() : null,
@@ -134,6 +136,7 @@ export async function getDispute(user: AuthUser, id: string) {
   ]);
   return {
     ...toDisputeDto(dispute.toObject()),
+    examTitle: exam.title,
     question: aq ? { position: aq.position, stem: aq.stem, marks: aq.marks, type: aq.type, currentScore: answer?.finalScore ?? null, gradeStatus: answer?.gradeStatus ?? null, feedback: answer?.feedback ?? null } : null,
     candidate: candidate ? { fullName: candidate.fullName, registrationNo: candidate.registrationNo ?? null } : undefined,
     events: events.map((e) => ({ at: (e as { createdAt?: Date }).createdAt, actorRole: e.actorRole, action: e.action, note: e.note ?? null })),

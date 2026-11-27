@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { useAuthStore } from "../store/auth.store";
@@ -166,12 +166,13 @@ export function AdminSystem() {
   </>;
 }
 
-type ImportRun = { id: string; status: string; validCount?: number; invalidCount?: number; canCommit?: boolean; errors?: { row: number; column: string; message: string }[] };
+type ImportRun = { id: string; status: string; validCount?: number; invalidCount?: number; appliedCount?: number; totalRows?: number; atomic?: boolean; failureReason?: string | null; canCommit?: boolean; errors?: { row: number; column: string; message: string }[] };
 
 export function ImportCenter() {
   const role = useAuthStore(state => state.user?.role);
   const [kind] = useState(role === "ADMIN" ? "candidates" : "questions");
   const [selected, setSelected] = useState<File>();
+  const fileInput = useRef<HTMLInputElement>(null);
   const [job, setJob] = useState<string>();
   const [revision, setRevision] = useState(0);
   const [accepted, setAccepted] = useState(false);
@@ -180,12 +181,12 @@ export function ImportCenter() {
   const path = "/api/imports";
   const query = useExamData<ImportRun>(path + "/" + segment(job ?? ""), { enabled: !!job, refreshMs: job ? 5000 : undefined });
   const upload = useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async ({ file, importMode }: { file: File; importMode: string }) => {
       const body = new FormData();
       body.set("file", file);
 
       body.set("mode", "dry-run");
-      body.set("atomic", mode === "atomic" ? "true" : "false");
+      body.set("atomic", importMode === "atomic" ? "true" : "false");
 
       return examWrite<ImportRun>(path + "/" + kind, "POST", body, key);
     },
@@ -215,12 +216,12 @@ export function ImportCenter() {
   return <>
     <form className="account-card exam-record exam-form" onSubmit={(event) => {
       event.preventDefault();
-      if (selected) upload.mutate(selected);
+      if (selected) upload.mutate({ file: selected, importMode: mode });
     }}>
       <h2>Validate an import file</h2>
       <label>Import type<input value={kind} readOnly /></label>
-      <label>Invalid rows<select value={mode} onChange={(event) => setMode(event.target.value)}><option value="atomic">Require every row to pass</option><option value="skip-invalid">Skip invalid rows</option></select></label>
-      <label>CSV or JSON file<input type="file" accept=".csv,.json,text/csv,application/json" required onChange={(event) => setSelected(event.target.files?.[0])} /></label>
+      <label>Invalid rows<select id="import-mode" value={mode} onChange={(event) => setMode(event.target.value)}><option value="atomic">Require every row to pass</option><option value="skip-invalid">Skip invalid rows</option></select></label>
+      <label>CSV or JSON file<input ref={fileInput} type="file" accept=".csv,.json,text/csv,application/json" required disabled={upload.isPending} onChange={(event) => { setSelected(event.target.files?.[0]); setJob(undefined); setAccepted(false); }} /></label>
       <div className="exam-actions"><button className="button button-primary" disabled={!selected || upload.isPending}>Validate file</button>
         <button className="button" type="button" disabled={template.isPending} onClick={() => template.mutate()}>Download template</button></div>
       <ActionError error={upload.error ?? template.error} />
@@ -230,17 +231,30 @@ export function ImportCenter() {
       {query.data && <section className="account-card exam-record">
         <h2>Import preview</h2><span className="exam-stamp">{query.data.status}</span>
         <p>{query.data.validCount ?? "—"} valid · {query.data.invalidCount ?? "—"} invalid</p>
+        {query.data.failureReason && <p className="import-status-error" role="alert">Import failed: {query.data.failureReason}</p>}
         {!!query.data.errors?.length && <DataTable label="Validation errors" columns={["Row", "Column", "Issue"]}
           rows={query.data.errors.map((error, index) => ({ key: index.toString(), cells: [error.row, error.column, error.message] }))} />}
-        {query.data.canCommit && <>
+        {query.data.canCommit && query.data.atomic && (query.data.invalidCount ?? 0) > 0 && <section className="import-blocked" role="alert">
+          <h3>This import cannot be committed in atomic mode</h3>
+          <p>{query.data.invalidCount} row(s) failed validation. Atomic mode imports nothing unless every row is valid.</p>
+          {selected ? <><p>Revalidate this file with the invalid rows skipped, or fix the listed rows and upload the corrected file.</p><button type="button" className="button button-primary" disabled={upload.isPending} onClick={() => {
+            setMode("skip-invalid"); setAccepted(false); upload.mutate({ file: selected, importMode: "skip-invalid" });
+          }}>{upload.isPending ? "Revalidating…" : "Revalidate and skip invalid rows"}</button></> : <p>Fix the listed rows and upload the corrected file, or upload it again using “Skip invalid rows”.</p>}
+        </section>}
+        {query.data.canCommit && (query.data.validCount ?? 0) === 0 && <p className="import-blocked" role="status">There are no valid rows to import. Fix the validation errors and upload the file again.</p>}
+        {query.data.canCommit && !query.data.atomic && (query.data.invalidCount ?? 0) > 0 && <p className="import-skip-notice" role="status">Only the {query.data.validCount} valid row(s) will be imported. {query.data.invalidCount} invalid row(s) will be skipped.</p>}
+        {query.data.canCommit && (query.data.validCount ?? 0) > 0 && (!query.data.atomic || (query.data.invalidCount ?? 0) === 0) && <>
           <label className="exam-inline"><input type="checkbox" checked={accepted} onChange={(event) => setAccepted(event.target.checked)} />I reviewed the validation results.</label>
-          <button className="button button-primary" disabled={!accepted || commit.isPending} onClick={() => commit.mutate()}>Commit import</button>
+          {!accepted && <p className="import-skip-notice" role="status">Review the preview and check the box above to enable the commit button.</p>}
+          <button className="button button-primary" disabled={!accepted || commit.isPending} onClick={() => commit.mutate()}>{commit.isPending ? "Committing…" : "Commit import"}</button>
         </>}
+        {query.data.status === "APPLYING" && <p className="import-skip-notice" role="status">Import is processing. This preview will update when it finishes.</p>}
+        {query.data.status === "DONE" && <p className="import-complete" role="status">Import complete. {query.data.appliedCount ?? query.data.validCount ?? 0} row(s) imported.</p>}
         <ActionError error={commit.error} />
       </section>}
     </DataPanel>}
     <ResourcePanel key={revision} title="Import history" path={path} empty="No imports yet." columns={[
-      { label: "Import", render: (row) => <button className="button" onClick={() => { setJob(row.id); setAccepted(false); }}>View {String(row.type ?? "import")}</button> },
+      { label: "Import", render: (row) => <button className="button" onClick={() => { setJob(row.id); setAccepted(false); setSelected(undefined); if (fileInput.current) fileInput.current.value = ""; }}>View {String(row.type ?? "import")}</button> },
       ...columns(["Status", "status"], ["Valid", "validCount"], ["Invalid", "invalidCount"]),
       { label: "Created", render: (row) => formatDate(typeof row.createdAt === "string" ? row.createdAt : undefined) },
     ]} />

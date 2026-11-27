@@ -108,7 +108,9 @@ export async function monitorAttempts(user: AuthUser, examId: string, query: Mon
   return {
     rows: rows.map((r) => {
       const u = uMap.get(String(r.candidateId));
-      const band = integrityBand(evMap.get(String(r._id)) ?? []);
+      const attemptEvents = evMap.get(String(r._id)) ?? [];
+      const band = integrityBand(attemptEvents);
+      const incidentCount = attemptEvents.filter((event) => event.reviewStatus === "OPEN").length;
       const i = iMap.get(String(r._id));
       return {
         attemptId: String(r._id),
@@ -121,6 +123,7 @@ export async function monitorAttempts(user: AuthUser, examId: string, query: Mon
         remainingSeconds: r.status === "IN_PROGRESS" ? remainingSeconds(r.deadlineAt, now) : 0,
         answered: aMap.get(String(r._id)) ?? 0,
         integrity: { band: band.band, score: band.score },
+        incidentCount,
         interruptions: { count: i?.n ?? 0, totalGapSeconds: i?.gap ?? 0 },
         creditedSeconds: r.creditedSeconds,
         extraSeconds: r.extraSeconds,

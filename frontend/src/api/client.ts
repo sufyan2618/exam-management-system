@@ -33,6 +33,7 @@ type RequestOptions = {
   signal?: AbortSignal;
   idempotencyKey?: string;
   timeoutMs?: number;
+  keepalive?: boolean;
   sessionEpoch?: number;
   version?: number;
   responseType?: "json" | "blob";
@@ -61,7 +62,7 @@ function requestId() {
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = "GET", body, auth = true, signal, idempotencyKey, timeoutMs = 10_000, responseType = "json" } = options;
+  const { method = "GET", body, auth = true, signal, idempotencyKey, timeoutMs = 10_000, responseType = "json", keepalive = false } = options;
   const id = requestId();
   const send = async (token: string | null) => {
     const headers = new Headers({ Accept: responseType === "blob" ? "*/*" : "application/json", "X-Request-Id": id });
@@ -83,6 +84,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
         credentials: "include",
         headers,
         body: multipart ? body : body === undefined ? undefined : JSON.stringify(body),
+        keepalive,
         signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       });
       if (response.ok && responseType === "blob") return await response.blob() as T;

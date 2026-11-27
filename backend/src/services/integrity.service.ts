@@ -7,6 +7,7 @@ import type { AuthUser } from "../types/express";
 import { notFound } from "../utils/errors";
 import { median } from "../lib/scoring";
 import { logger } from "../lib/logger";
+import { publish } from "../lib/sse";
 import { audit } from "./audit.service";
 
 export const INTEGRITY_NOTICE =
@@ -61,7 +62,13 @@ export async function recordClientEvents(attempt: { _id: unknown; examId: unknow
     if (occurred < attempt.startedAt) occurred = attempt.startedAt;
     return { attemptId: attempt._id, examId: attempt.examId, type, severity: SEVERITY[type] ?? "INFO", meta, occurredAt: occurred, receivedAt: now };
   });
-  if (docs.length) await IntegrityEvent.insertMany(docs, { ordered: false });
+  if (docs.length) {
+    await IntegrityEvent.insertMany(docs, { ordered: false });
+    await publish(`exam:${String(attempt.examId)}:monitor`, {
+      type: "integrity_events",
+      data: { attemptId: String(attempt._id), count: docs.length },
+    });
+  }
   return docs.length;
 }
 

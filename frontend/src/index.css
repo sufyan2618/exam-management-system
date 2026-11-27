@@ -203,12 +203,13 @@ h3 {
 a {
   color: var(--brand);
   font-weight: 600;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
+  text-decoration: none;
+  transition: color 0.16s ease;
 }
 
 a:hover {
   color: var(--brand-hover);
+  text-decoration: none;
 }
 
 button, input, select, textarea {
@@ -558,7 +559,7 @@ code {
 }
 
 .form-row-end a:hover {
-  text-decoration: underline;
+  color: var(--brand-hover);
 }
 
 .form-note {
@@ -861,7 +862,7 @@ code {
 }
 
 .auth-footer a:hover {
-  text-decoration: underline;
+  color: var(--brand-hover);
 }
 
 /* Lottie (kept for compatibility) */
@@ -2045,18 +2046,45 @@ fieldset.exam-form {
 .exam-inline {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.65rem;
   min-height: 44px;
   color: var(--ink);
   font-size: 0.88rem;
   font-weight: 400;
+  line-height: 1.45;
+  cursor: pointer;
 }
 
 .exam-inline input {
   flex: none;
   width: 1.05rem;
   height: 1.05rem;
+  margin: 0;
   accent-color: var(--brand);
+}
+
+.exam-form label:has(> input[type="checkbox"]) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.exam-form label:has(> input[type="checkbox"]) > input[type="checkbox"] {
+  order: -1;
+  flex: 0 0 1.05rem;
+  width: 1.05rem;
+  min-height: 1.05rem;
+  height: 1.05rem;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--brand);
+}
+
+.exam-form label:has(> input[type="checkbox"]) > .exam-field-error {
+  flex-basis: 100%;
 }
 
 .exam-option {
@@ -2288,7 +2316,7 @@ fieldset.exam-form {
   gap: 1rem;
 }
 
-.workspace-preferences label {
+.workspace-preferences > label {
   display: grid;
   gap: 0.35rem;
   max-width: 24rem;

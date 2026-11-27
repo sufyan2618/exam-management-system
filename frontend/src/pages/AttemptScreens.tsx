@@ -20,15 +20,22 @@ type Question = {
   id: string; stem: string; type: "MCQ_SINGLE" | "MCQ_MULTI" | "WRITTEN"; marks: number;
   options?: { id: string; text: string }[]; maxWords?: number; answer?: Answer; flagged?: boolean;
 };
+type AttemptAnnouncement = { id: string; seq?: number; message: string; priority?: "NORMAL" | "URGENT"; createdAt?: string };
 type Attempt = {
   id: string; examTitle: string; status: string; remainingSeconds: number; clientSeq?: number; sessionEpoch?: number;
   integrityAcknowledged?: boolean;
   integrityLevel?: "OFF" | "STANDARD" | "STRICT";
   questions: Question[]; submittedAt?: string; receiptId?: string; notes?: string; sketch?: Stroke[];
-  announcements?: { id: string; message: string }[];
+  announcementCursor?: number; announcements?: AttemptAnnouncement[];
 };
 type Clock = { remainingSeconds: number; receivedAt: number; sessionEpoch?: number };
 const isAnswered = (answer: Answer | undefined) => Array.isArray(answer) ? answer.length > 0 : !!answer?.trim();
+
+function mergeAnnouncements(current: AttemptAnnouncement[], incoming: AttemptAnnouncement[]) {
+  const byId = new Map(current.map((announcement) => [announcement.id, announcement]));
+  for (const announcement of incoming) byId.set(announcement.id, announcement);
+  return [...byId.values()].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0)).slice(-50);
+}
 
 export function AttemptScreen({ id, review = false, sandbox = false, exit = "/app" }: { id: string; review?: boolean; sandbox?: boolean; exit?: string }) {
   const userId = useAuthStore((state) => state.user?.id);
@@ -90,6 +97,7 @@ function AttemptPaper({ id, path, runtimeKey, attempt, initialClock, review, san
 
 
   const [announcements, setAnnouncements] = useState(attempt.announcements ?? []);
+  const [announcementCursor, setAnnouncementCursor] = useState(attempt.announcementCursor ?? 0);
   const [receipt, setReceipt] = useState<{ receiptId?: string; submittedAt?: string }>();
   const [sessionEpoch] = useState(attempt.sessionEpoch);
   const pending = runtime?.pending;
@@ -112,6 +120,10 @@ function AttemptPaper({ id, path, runtimeKey, attempt, initialClock, review, san
       reload();
     },
   });
+  useEffect(() => {
+    if (attempt.announcementCursor !== undefined) setAnnouncementCursor((current) => Math.max(current, attempt.announcementCursor ?? 0));
+    if (attempt.announcements?.length) setAnnouncements((current) => mergeAnnouncements(current, attempt.announcements ?? []));
+  }, [attempt.announcementCursor, attempt.announcements]);
   useEffect(() => {
     let live = true;
     void loadAttemptQueue(runtimeKey).then((stored) => {
@@ -148,17 +160,18 @@ function AttemptPaper({ id, path, runtimeKey, attempt, initialClock, review, san
     let live = true;
     const beat = async () => {
       try {
-        const data = await examWrite<Clock & { status?: string; announcements?: Attempt["announcements"] }>(path + "/heartbeat", "POST", { sessionEpoch: sessionEpoch });
+        const data = await examWrite<Clock & { status?: string; announcements?: Attempt["announcements"]; announcementCursor?: number }>(path + "/heartbeat", "POST", { sessionEpoch: sessionEpoch, cursor: announcementCursor });
         if (!live || !data) return;
         if (sessionEpoch != null && data.sessionEpoch != null && data.sessionEpoch !== sessionEpoch) { setTakenOver(true); return; }
         if (Number.isFinite(data.remainingSeconds)) setClock({ ...data, receivedAt: performance.now() });
-        if (data.announcements) setAnnouncements(data.announcements);
+        if (data.announcements?.length) setAnnouncements((current) => mergeAnnouncements(current, data.announcements ?? []));
+        if (data.announcementCursor !== undefined) setAnnouncementCursor((current) => Math.max(current, data.announcementCursor ?? 0));
         if (data.status && data.status !== "IN_PROGRESS") reload();
       } catch { /* The existing timer continues while the server is unreachable. */ }
     };
     const timer = window.setInterval(() => void beat(), 10_000);
     return () => { live = false; window.clearInterval(timer); };
-  }, [active, lockReady, path, reload, sessionEpoch, staleSession, takenOver]);
+  }, [active, announcementCursor, lockReady, path, reload, sessionEpoch, staleSession, takenOver]);
 
   useEffect(() => {
     if (!active || !hydrated || !lockReady || takenOver || staleSession || !pending?.length) return;
@@ -254,6 +267,7 @@ function AttemptPaper({ id, path, runtimeKey, attempt, initialClock, review, san
   </section>;
 
   const timer = [Math.floor(remaining / 60), remaining % 60].map((value) => String(value).padStart(2, "0")).join(":");
+  const latestAnnouncement = announcements.at(-1);
   return <>
     {sandbox && <div className="account-card" role="status"><strong>Sandbox</strong> · This attempt does not affect real results. <Link to={exit}>Exit preview</Link></div>}
     <header className="account-card exam-attempt-header">
@@ -271,12 +285,17 @@ function AttemptPaper({ id, path, runtimeKey, attempt, initialClock, review, san
     {integrityEnabled && <details className="account-card">
       <summary>What is being recorded?</summary>
       <p>Recorded indicators include tab visibility, fullscreen exits, clipboard actions, context menu use and reconnections. Clipboard contents are not collected.</p>
-      <p>Indicators are not conclusive evidence of misconduct. This session recorded {recordedSignals} events.</p>
+      <p>Indicators are not conclusive evidence of misconduct. This tab has noticed {recordedSignals} signals so far; the examiner monitor refreshes as they arrive.</p>
     </details>}
     {!review && typeof document.documentElement.requestFullscreen === "function" &&
       <button className="button" onClick={() => { void document.documentElement.requestFullscreen().catch(() => undefined); }}>Enter fullscreen</button>}
-    {announcements.length > 0 && <details className="account-card"><summary>Announcements ({announcements.length})</summary>
-      {announcements.map((item) => <p key={item.id}>{item.message}</p>)}</details>}
+    {latestAnnouncement && <>
+      <aside className={`candidate-announcement${latestAnnouncement.priority === "URGENT" ? " is-urgent" : ""}`} role={latestAnnouncement.priority === "URGENT" ? "alert" : "status"}>
+        <div><strong>{latestAnnouncement.priority === "URGENT" ? "Urgent exam announcement" : "Exam announcement"}</strong>{latestAnnouncement.createdAt && <time>{formatDate(latestAnnouncement.createdAt)}</time>}</div><p>{latestAnnouncement.message}</p>
+      </aside>
+      {announcements.length > 1 && <details className="account-card candidate-announcement-history"><summary>Earlier announcements ({announcements.length - 1})</summary>
+        {announcements.slice(0, -1).map((item) => <article key={item.id}><div><strong>{item.priority === "URGENT" ? "Urgent" : "Update"}</strong>{item.createdAt && <time>{formatDate(item.createdAt)}</time>}</div><p>{item.message}</p></article>)}</details>}
+    </>}
     {connection === "Offline" && !storageError && <p role="status">The connection is offline. Pending answers stay on this device. The exam timer continues.</p>}
     <span className="exam-visually-hidden" aria-live="polite">{remaining === 0 ? "Time is up" :
       remaining <= 60 ? "One minute or less remaining" : remaining <= 300 ? "Five minutes or less remaining" :
