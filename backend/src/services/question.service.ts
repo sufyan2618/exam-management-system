@@ -50,11 +50,13 @@ export async function createCategory(user: AuthUser, input: z.infer<typeof categ
   const nameLower = input.name.toLowerCase();
   if (await Category.exists({ ownerId: user.userId, nameLower })) throw conflict("A category with this name already exists", "CONFLICT", [{ field: "name", issue: "Already exists" }]);
   const cat = await Category.create({ name: input.name, nameLower, parentId: input.parentId ?? null, ownerId: user.userId });
+  await audit({ action: "category.create", entityType: "category", entityId: cat._id, after: { name: cat.name, parentId: cat.parentId ? String(cat.parentId) : null } });
   return { id: String(cat._id), name: cat.name, parentId: cat.parentId ? String(cat.parentId) : null };
 }
 
 export async function updateCategory(user: AuthUser, id: string, input: z.infer<typeof categoryPatchBody>) {
   const cat = await assertOwnCategory(user, id);
+  const before = { name: cat.name, parentId: cat.parentId ? String(cat.parentId) : null };
   if (input.parentId !== undefined) {
     if (input.parentId === id) throw unprocessable("A category cannot be its own parent");
     if (input.parentId) {
@@ -78,6 +80,7 @@ export async function updateCategory(user: AuthUser, id: string, input: z.infer<
     cat.nameLower = nameLower;
   }
   await cat.save();
+  await audit({ action: "category.update", entityType: "category", entityId: cat._id, before, after: { name: cat.name, parentId: cat.parentId ? String(cat.parentId) : null } });
   return { id: String(cat._id), name: cat.name, parentId: cat.parentId ? String(cat.parentId) : null };
 }
 
@@ -86,6 +89,7 @@ export async function deleteCategory(user: AuthUser, id: string) {
   const [questions, children] = await Promise.all([Question.exists({ categoryId: id }), Category.exists({ parentId: id })]);
   if (questions || children) throw conflict("Category still has questions or sub-categories", "CATEGORY_NOT_EMPTY");
   await cat.deleteOne();
+  await audit({ action: "category.delete", entityType: "category", entityId: id, before: { name: cat.name } });
 }
 
 // ---- questions --------------------------------------------------------------------------------
@@ -159,6 +163,7 @@ export async function createQuestion(user: AuthUser, input: CreateQuestionInput)
   });
   q.rootId = q._id as never;
   await q.save();
+  await audit({ action: "question.create", entityType: "question", entityId: q._id, after: { type: q.type, categoryId: String(q.categoryId), version: q.version } });
   return toQuestionDto(q.toObject());
 }
 
@@ -236,9 +241,11 @@ export async function deleteQuestion(user: AuthUser, id: string) {
   if (await isQuestionUsed(id)) {
     q.isArchived = true;
     await q.save();
+    await audit({ action: "question.archive", entityType: "question", entityId: q._id, before: { isArchived: false }, after: { isArchived: true } });
     return { archived: true };
   }
   await q.deleteOne();
+  await audit({ action: "question.delete", entityType: "question", entityId: id, before: { version: q.version } });
   return { archived: false };
 }
 
@@ -255,5 +262,6 @@ export async function duplicateQuestion(user: AuthUser, id: string) {
   });
   copy.rootId = copy._id as never;
   await copy.save();
+  await audit({ action: "question.duplicate", entityType: "question", entityId: copy._id, meta: { sourceId: id } });
   return toQuestionDto(copy.toObject());
 }

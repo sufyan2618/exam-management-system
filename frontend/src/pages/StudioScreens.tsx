@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { display, formatDate, examWrite, newOperationKey, segment } from "../api/examination";
@@ -307,6 +307,15 @@ export function QuestionBank() {
       </section>
     </div>
   </div>;
+}
+
+function QuestionEditorDialog({ onClose, onSave }: { mode: "create" | "edit" | "duplicate"; question?: Record<string, unknown>; onClose: () => void; onSave: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => { dialog.current?.showModal(); }, []);
+  return <dialog ref={dialog} className="question-editor-dialog" aria-label="Create question" onClose={onClose}>
+    <button className="question-editor-dismiss" type="button" onClick={() => dialog.current?.close()}>Close</button>
+    <QuestionEditor onSave={onSave} />
+  </dialog>;
 }
 
 function QuestionEditor({ onSave }: { onSave: () => void }) {

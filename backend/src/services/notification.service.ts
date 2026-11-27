@@ -31,3 +31,8 @@ export async function markRead(userId: string, id: string) {
   if (!doc) throw notFound("Notification");
   return doc;
 }
+
+export async function markAllRead(userId: string) {
+  const result = await Notification.updateMany({ userId, readAt: null }, { $set: { readAt: new Date() } });
+  return { updated: result.modifiedCount };
+}

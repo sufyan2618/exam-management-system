@@ -73,7 +73,7 @@ export function AccountPreferences() {
   );
 }
 
-function RailIcon({ path }: { path: string }) {
+export function RailIcon({ path }: { path: string }) {
   const stroke = {
     fill: "none",
     stroke: "currentColor",
@@ -133,19 +133,11 @@ export function RoleWorkspace({ workspace, screen }: { workspace: Workspace; scr
   if (user.role !== workspace.role) return <Navigate to={roleHome(user.role)} replace />;
   const examHub = id && workspace.role === "EXAMINER" ? "/studio/exams/" + encodeURIComponent(id) : undefined;
   const navigation = [...workspace.screens.filter((item) => item.nav), { path: "/dashboard", title: "Account" }];
-  const initials = `${user.firstName?.[0] ?? ""}${user.lastName?.[0] ?? ""}`.toUpperCase() || "SE";
   return (
     <div className={screen.exam ? "exam-shell" : "product-shell"}>
       {!screen.exam && (
         <aside className="product-rail">
           <Link className="product-brand verity-brand" to={home} aria-label="Verity home"><Logo variant="light" /></Link>
-          <div className="rail-user">
-            <span className="rail-avatar" aria-hidden="true">{initials}</span>
-            <span className="rail-user-meta">
-              <span className="rail-user-name">{user.firstName} {user.lastName}</span>
-              <span className="rail-user-email">{user.email}</span>
-            </span>
-          </div>
           <span className="rail-label">Navigation</span>
           <nav aria-label={workspace.label}>
             {navigation.map(({ path, title }) => (

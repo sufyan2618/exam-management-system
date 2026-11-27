@@ -222,6 +222,7 @@ export async function startAttempt(user: AuthUser, examId: string, input: { ackn
 
   try {
     const attempt = await buildAndCreate({ exam, candidateId: user.userId, enrollment, sandbox: false, noticeAck: Boolean(input.acknowledgeNotice), ip, now, attemptNo: attemptsUsed + 1 });
+    await audit({ action: "attempt.start", entityType: "attempt", entityId: attempt._id, meta: { examId, attemptNo: attemptsUsed + 1 } });
     return { attempt: attempt.toObject(), resumed: false };
   } catch (err) {
     if (isDuplicateKey(err)) {
@@ -332,6 +333,7 @@ export async function submitAttempt(user: AuthUser, attemptId: string, epoch?: n
     if (epoch !== undefined && epoch < attempt.sessionEpoch) throw new AppError(409, "SESSION_SUPERSEDED", "This session is read-only");
     const late = now.getTime() > attempt.deadlineAt.getTime() + env.GRACE_SECONDS * 1000;
     await finalizeAttempt(attemptId, late ? "TIMEOUT" : "MANUAL");
+    await audit({ action: "attempt.submit", entityType: "attempt", entityId: attemptId, meta: { reason: late ? "TIMEOUT" : "MANUAL", examId: String(attempt.examId) } });
   }
   const final = await loadOwnAttempt(user, attemptId);
   return {
