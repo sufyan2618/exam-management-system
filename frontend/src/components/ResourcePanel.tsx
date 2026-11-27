@@ -90,7 +90,7 @@ function validateActionFields(fields: Field[], data: FormData) {
       errors[field.name] = "Enter a valid date and time.";
     } else if (field.min !== undefined && value.length < field.min) {
       errors[field.name] = `Enter at least ${field.min} characters.`;
-    } else if (field.max !== undefined && field.type !== "number" && value.length > field.max) {
+    } else if (field.max !== undefined && value.length > field.max) {
       errors[field.name] = `Use no more than ${field.max} characters.`;
     } else if (field.type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
       errors[field.name] = "Enter a valid email address.";
