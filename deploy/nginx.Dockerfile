@@ -8,7 +8,7 @@ RUN pnpm run build
 
 FROM nginx:1.28-bookworm
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates \
+  && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates curl \
   && python3 -m venv /opt/certbot \
   && /opt/certbot/bin/pip install --no-cache-dir certbot==5.4.0 \
   && rm -rf /var/lib/apt/lists/*

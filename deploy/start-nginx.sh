@@ -11,15 +11,16 @@ certbot="/opt/certbot/bin/certbot"
 
 if [ ! -s "${cert_dir}/fullchain.pem" ] || [ ! -s "${cert_dir}/privkey.pem" ]; then
   cp /etc/nginx/bootstrap.conf /etc/nginx/nginx.conf
-  nginx
+  nginx -g 'daemon off;' &
+  bootstrap_pid=$!
   "$certbot" certonly \
     --webroot --webroot-path /var/www/certbot \
     --ip-address "$SITE_HOST" \
     --cert-name "$SITE_HOST" \
     --preferred-profile shortlived \
     --non-interactive --agree-tos --register-unsafely-without-email
-  nginx -s quit
-  while [ -f /var/run/nginx.pid ]; do sleep 1; done
+  kill -QUIT "$bootstrap_pid"
+  wait "$bootstrap_pid"
 fi
 
 sed "s/__SITE_HOST__/${SITE_HOST}/g" /etc/nginx/nginx-production.conf.template > /etc/nginx/nginx.conf
@@ -28,7 +29,7 @@ nginx -t
 (
   while :; do
     sleep 8h
-    "$certbot" renew --quiet --deploy-hook 'nginx -s reload'
+    "$certbot" renew --quiet --deploy-hook 'nginx -s reload' || echo "Certificate renewal failed; retrying on the next cycle." >&2
   done
 ) &
 
