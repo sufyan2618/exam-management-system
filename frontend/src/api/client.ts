@@ -1,89 +1,115 @@
 import { useAuthStore } from "../store/auth.store";
 import { ApiError } from "../utils/api-error";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? "";
+const buildBase = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || "";
+let specApi = false;
+export function setSpecApi(active: boolean) { specApi = active; }
+export function authPath(current: string, versioned: string) { return specApi ? versioned : current; }
 
-type RequestOptions = {
-  method?: "GET" | "POST";
-  body?: unknown;
-  auth?: boolean;
-  retry?: boolean;
-};
+let base = buildBase.replace(/\/+$/, "");
 
-type ErrorBody = {
-  message?: string;
-};
-
-let refreshRequest: Promise<string | null> | null = null;
-
-async function readBody(response: Response): Promise<ErrorBody> {
-  const text = await response.text();
-  if (!text) return {};
-
-  try {
-    return JSON.parse(text) as ErrorBody;
-  } catch {
-    return { message: text };
-  }
+export function setApiBaseUrl(value: string) {
+  base = value.trim().replace(/\/+$/, "");
 }
 
-async function refreshAccessToken() {
-  if (!refreshRequest) {
-    refreshRequest = fetch(`${API_BASE_URL}/api/auth/refresh-token`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    })
-      .then(async (response) => {
-        if (!response.ok) return null;
-        const data = (await response.json()) as { accessToken?: string };
-        if (!data.accessToken) return null;
-        useAuthStore.getState().setAccessToken(data.accessToken);
-        return data.accessToken;
-      })
-      .catch(() => null)
-      .finally(() => {
-        refreshRequest = null;
-      });
-  }
+export function getApiBaseUrl() {
+  return new URL(base || "/", window.location.origin).href;
+}
 
+export function apiUrl(path: string, override?: string) {
+  // Existing endpoint modules use /api-prefixed paths. A configured API
+  // prefix replaces /api, while a configured origin keeps it.
+  const url = new URL((override ?? base) || "/", window.location.origin);
+  const prefix = url.pathname.replace(/\/+$/, "");
+  return prefix
+    ? url.origin + prefix + path.replace(/^\/api(?=\/)/, "")
+    : url.origin + path;
+}
+
+type RequestOptions = {
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  body?: unknown;
+  auth?: boolean;
+  signal?: AbortSignal;
+  idempotencyKey?: string;
+  timeoutMs?: number;
+  responseType?: "json" | "blob";
+};
+
+let refreshRequest: Promise<string> | null = null;
+
+export function refreshAccessToken() {
+  if (!refreshRequest) {
+    refreshRequest = apiRequest<{ accessToken: string }>(authPath("/api/auth/refresh-token", "/api/auth/refresh"), {
+      method: "POST",
+      auth: false,
+      body: {},
+    }).then(({ accessToken }) => {
+      useAuthStore.getState().setAccessToken(accessToken);
+      return accessToken;
+    }).finally(() => { refreshRequest = null; });
+  }
   return refreshRequest;
 }
 
+function requestId() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
+}
+
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = "GET", body, auth = true, retry = true } = options;
-  const headers: Record<string, string> = {};
-
-  if (body !== undefined) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  if (auth) {
-    const accessToken = useAuthStore.getState().accessToken;
-    if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
-  }
-
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    credentials: "include",
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-
-  if (response.status === 401 && auth && retry) {
-    const accessToken = await refreshAccessToken();
-    if (accessToken) {
-      return apiRequest<T>(path, { method, body, auth, retry: false });
+  const { method = "GET", body, auth = true, signal, idempotencyKey, timeoutMs = 10_000, responseType = "json" } = options;
+  const id = requestId();
+  const send = async (token: string | null) => {
+    const headers = new Headers({ Accept: responseType === "blob" ? "*/*" : "application/json", "X-Request-Id": id });
+    const multipart = body instanceof FormData;
+    if (body !== undefined && !multipart) headers.set("Content-Type", "application/json");
+    if (auth && token) headers.set("Authorization", "Bearer " + token);
+    if (idempotencyKey) headers.set("Idempotency-Key", idempotencyKey);
+    const timeout = AbortSignal.timeout(timeoutMs);
+    try {
+      const response = await fetch(apiUrl(path), {
+        method,
+        credentials: "include",
+        headers,
+        body: multipart ? body : body === undefined ? undefined : JSON.stringify(body),
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      });
+      if (response.ok && responseType === "blob") return await response.blob() as T;
+      if (response.status === 204 && responseType === "json") return undefined as T;
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok || payload === null) {
+        const error = payload as { message?: string; code?: string; details?: unknown[] } | null;
+        throw new ApiError(error?.message || "The service could not complete this request.", response.status,
+          error?.code, response.headers.get("X-Request-Id") ?? id, error?.details);
+      }
+      return payload as T;
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason;
+      if (error instanceof ApiError) throw error;
+      throw new ApiError(timeout.aborted ? "The request timed out. Try again." :
+        "Could not reach the server. Check your connection and try again.", 0, undefined, id);
     }
-    useAuthStore.getState().clearSession();
+  };
+
+  const token = useAuthStore.getState().accessToken;
+  try {
+    return await send(token);
+  } catch (error) {
+    if (!auth || !(error instanceof ApiError) || error.status !== 401) throw error;
+    let nextToken: string;
+    try {
+      const currentToken = useAuthStore.getState().accessToken;
+      nextToken = currentToken && currentToken !== token ? currentToken : await refreshAccessToken();
+    } catch (refreshError) {
+      if (isSessionExpired(refreshError)) useAuthStore.getState().clearSession();
+      throw refreshError;
+    }
+    return send(nextToken);
   }
+}
 
-  const payload = await readBody(response);
-
-  if (!response.ok) {
-    throw new ApiError(payload.message || "Something went wrong", response.status);
-  }
-
-  return payload as T;
+export function isSessionExpired(error: unknown) {
+  return error instanceof ApiError && (error.status === 401 || error.status === 404);
 }

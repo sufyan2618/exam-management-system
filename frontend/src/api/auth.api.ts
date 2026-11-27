@@ -9,7 +9,7 @@ import type {
   UpdatePasswordInput,
   VerifyOtpInput,
 } from "../types/auth";
-import { apiRequest } from "./client";
+import { apiRequest, authPath } from "./client";
 
 export const authApi = {
   register(input: RegisterInput) {
@@ -59,8 +59,8 @@ export const authApi = {
     });
   },
 
-  profile() {
-    return apiRequest<ProfileResponse>("/api/auth/profile");
+  profile(signal?: AbortSignal) {
+    return apiRequest<ProfileResponse>(authPath("/api/auth/profile", "/api/auth/me"), { signal });
   },
 
   resetPassword(email: string) {

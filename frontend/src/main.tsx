@@ -8,3 +8,9 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 )
+
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  const build = new URL(import.meta.url).pathname.split("/").pop() ?? "";
+  void navigator.serviceWorker.register("/sw.js?build=" + encodeURIComponent(build))
+    .catch(() => { /* The app can still run without its offline shell. */ });
+}

@@ -1,6 +1,10 @@
 export type OtpPurpose = "verify_email" | "reset_password";
 
+export type Role = "CANDIDATE" | "EXAMINER" | "ADMIN";
+
 export type User = {
+  role?: Role;
+  mustChangePassword?: boolean;
   id: string;
   firstName: string;
   lastName: string;

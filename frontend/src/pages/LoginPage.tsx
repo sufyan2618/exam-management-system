@@ -9,6 +9,7 @@ import { Alert } from "../components/Alert";
 import { AuthLayout } from "../components/AuthLayout";
 import { Button } from "../components/Button";
 import { InputField } from "../components/InputField";
+import { roleHome } from "./workspace-routes";
 import { useAuthStore } from "../store/auth.store";
 import { ApiError, getErrorMessage } from "../utils/api-error";
 import { hasFieldErrors, validateEmail, validateRequired } from "../utils/validators";
@@ -26,7 +27,9 @@ export function LoginPage() {
     onSuccess: (result) => {
       useAuthStore.getState().setSession(result.data, result.accessToken);
       queryClient.setQueryData(["profile"], result.data);
-      navigate("/dashboard", { replace: true });
+      const next = new URLSearchParams(location.search).get("next");
+      const allowed = next && /^\/(app|studio|admin|account)(\/|\?|$)/.test(next) && !next.includes("\\");
+      navigate(result.data.mustChangePassword ? "/change-password" : allowed ? next : roleHome(result.data.role), { replace: true });
     },
   });
 

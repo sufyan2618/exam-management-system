@@ -1,0 +1,9 @@
+{
+  "name": "Secure Examination Management",
+  "short_name": "Examinations",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f2ea",
+  "theme_color": "#1f3a5f",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
