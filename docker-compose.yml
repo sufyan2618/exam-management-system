@@ -158,6 +158,9 @@ services:
     environment:
       <<: *backend-env
       ALLOW_DEMO_SEED: "true"
+      DEMO_ADMIN_PASSWORD: "${DEMO_ADMIN_PASSWORD:-ShowcaseAdmin#2026!}"
+      DEMO_EXAMINER_PASSWORD: "${DEMO_EXAMINER_PASSWORD:-ShowcaseExaminer#2026!}"
+      DEMO_CANDIDATE_PASSWORD: "${DEMO_CANDIDATE_PASSWORD:-ShowcaseCandidate#2026!}"
     depends_on:
       mongodb:
         condition: service_healthy

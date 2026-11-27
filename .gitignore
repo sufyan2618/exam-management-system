@@ -1,3 +1,4 @@
 .env
 *.md
 !frontend/brand-spec.md
+!README.md

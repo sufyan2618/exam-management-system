@@ -9,6 +9,7 @@
     "worker": "bun --env=.env src/workers/jobs.worker.ts",
     "dev:worker": "bun --watch --env=.env src/workers/jobs.worker.ts",
     "seed": "bun --env=.env src/scripts/seed.ts",
+    "seed:demo": "bun --env=.env src/scripts/seed.ts --confirm-reset",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
