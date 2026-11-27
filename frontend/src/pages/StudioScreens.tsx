@@ -278,7 +278,10 @@ export function QuestionBank() {
   const category = categories.data?.find((item) => item.id === categoryId);
   return <div className="question-bank">
     <header className="bank-intro"><div><p className="eyebrow">Your teaching library</p><h2>Great examinations start here.</h2><p>Organize your topics, build questions, and keep your next paper within reach.</p></div><button className="button button-primary" onClick={() => setEditor({ mode: "create" })}>+ New question</button></header>
-    {editor && <QuestionEditorDialog key={editor.mode + String(editor.question?.id ?? "")} mode={editor.mode} question={editor.question} onClose={() => setEditor(undefined)} onSave={() => { setEditor(undefined); setRevision((value) => value + 1); }} />}
+    {editor && <section className="account-card question-editor-panel">
+      <button className="button button-ghost" onClick={() => setEditor(undefined)}>Close editor</button>
+      <QuestionEditor onSave={() => { setEditor(undefined); setRevision((value) => value + 1); }} />
+    </section>}
     <div className="bank-layout">
       <aside className="bank-categories">
         <header><h2>Categories</h2><span>{categories.data?.length ?? "—"}</span></header>

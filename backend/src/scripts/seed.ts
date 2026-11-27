@@ -6,10 +6,11 @@
  *   examiner@demo.test   / Examiner#12345
  *   candidate1..20@demo.test / Candidate#12345
  */
-import { Types } from "mongoose";
+import mongoose, { Types } from "mongoose";
 import { BASE_DIFFICULTY_SCORE } from "../config/constants";
 import { env } from "../config/env";
 import { connectDatabase, disconnectDatabase } from "../lib/db";
+import { redis } from "../lib/redis";
 import { logger } from "../lib/logger";
 import { Answer, Attempt, AttemptQuestion } from "../models/attempt.model";
 import { Dispute, DisputeEvent } from "../models/dispute.model";
@@ -21,6 +22,7 @@ import { Notification, UserPreference } from "../models/system.model";
 import { hashPassword } from "../utils/password";
 import { buildOptions } from "../services/question.service";
 import { issueVerification } from "../services/results.service";
+import { jobsQueue } from "../queues/jobs.queue";
 
 if (env.IS_PROD && !env.ALLOW_DEMO_SEED) {
   console.error("Refusing to seed: NODE_ENV=production and ALLOW_DEMO_SEED is not true");
@@ -58,12 +60,23 @@ async function InterruptionSafe() {
   await Promise.all([IntegrityEvent.deleteMany({}), Interruption.deleteMany({}), Scratchpad.deleteMany({}), AnswerEvent.deleteMany({})]);
 }
 
+async function closeSeedResources() {
+  await jobsQueue.close().catch(() => undefined);
+  redis.disconnect();
+  await disconnectDatabase().catch(() => undefined);
+  logger.end();
+}
+
 function mcq(stem: string, correct: number, extras: string[] = ["Alpha", "Bravo", "Charlie", "Delta"]) {
   return extras.map((text, i) => ({ text, isCorrect: i === correct }));
 }
 
 async function seed() {
   await connectDatabase();
+  const topology = await mongoose.connection.db?.admin().command({ hello: 1 });
+  if (!topology?.isWritablePrimary) {
+    throw new Error("MongoDB has no writable primary. Seed stopped before deleting existing data.");
+  }
   logger.info("Seeding demo data…");
   await wipe();
 
@@ -319,11 +332,11 @@ async function seed() {
     exams: { draft: 1, ongoing: String(ongoing._id), completed: String(completed._id) },
     dispute: openDispute,
   });
-  await disconnectDatabase();
+  await closeSeedResources();
 }
 
 seed().catch(async (err) => {
   console.error(err);
-  await disconnectDatabase().catch(() => undefined);
-  process.exit(1);
+  await closeSeedResources();
+  process.exitCode = 1;
 });

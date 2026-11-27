@@ -11,8 +11,10 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       proxy: {
         "/api": {
-          // Use the running Compose gateway while Vite serves live source edits.
-          target: env.VITE_DEV_PROXY_TARGET || "http://127.0.0.1:8088",
+          // Direct Vite development targets the API service. Set
+          // VITE_DEV_PROXY_TARGET=http://127.0.0.1:8088 only when a local
+          // Compose gateway is intentionally listening on that port.
+          target: env.VITE_DEV_PROXY_TARGET || "http://127.0.0.1:5000",
           changeOrigin: true,
         },
       },
